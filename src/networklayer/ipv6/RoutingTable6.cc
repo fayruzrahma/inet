@@ -972,6 +972,7 @@ IPv6NDPrefixInformation RoutingTable6::createSubPrefix(IPv6NDPrefixInformation s
     p.setOnlinkFlag(superPrefixInfo.getOnlinkFlag());
     p.setPreferredLifetime(superPrefixInfo.getPreferredLifetime());
     p.setAutoAddressConfFlag(superPrefixInfo.getAutoAddressConfFlag());
+    p.setRouterAddressFlag(superPrefixInfo.getRouterAddressFlag());
 
     return p;
 }

@@ -4,6 +4,7 @@
  * Communication Networks Institute, University of Dortmund, Germany.
  * Christian Bauer
  * Institute of Communications and Navigation, German Aerospace Center (DLR)
+
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -31,6 +32,9 @@
 #include "IPv6InterfaceData.h"
 #include "IPv6NeighbourDiscoveryAccess.h"
 #include "IPv6TunnelingAccess.h"
+#include "NemoBindingCacheAccess.h"
+#include "NemoBindingUpdateList.h"
+#include "NemoBindingUpdateListAccess.h"
 #include "RoutingTable6Access.h"
 
 
@@ -142,15 +146,29 @@ void xMIPv6::initialize(int stage)
         {
             bul = BindingUpdateListAccess().get();  // Zarrar Yousaf 31.07.07
             bc = NULL;
+            nbul = NULL;
+            nbc = NULL;
         }
-        else
+        else if (rt6->isMobileRouter())
+        {
+            bul = NULL;
+            nbul = NemoBindingUpdateListAccess().get();
+            bc = NULL;
+            nbc = NULL;
+        }
+        else //isHomeAgent
         {
             bc = BindingCacheAccess().get(); // Zarrar Yousaf 31.07.07
+            nbc = NemoBindingCacheAccess().get();
             bul = NULL;
+            nbul = NULL;
         }
 
         WATCH_VECTOR(cnList);
         WATCH_MAP(interfaceCoAList);
+        WATCH_PTRMAP(transmitIfList); // fay added this
+
+//        snapshot(this); //backup strategi for debugging
     }
 }
 
@@ -225,47 +243,59 @@ void xMIPv6::processMobilityMessage(MobilityHeader* mipv6Msg, IPv6ControlInfo* c
 
     if (dynamic_cast<BindingUpdate*>(mipv6Msg))
     {
-        EV << "Message recognised as BINDING UPDATE (BU)" << endl;
+        EV << "Message recognized as BINDING UPDATE (BU)" << endl;
         //EV << "\n<<<<<<<<Giving Control to processBUMessage()>>>>>>>\n";
         BindingUpdate *bu = (BindingUpdate*)mipv6Msg;
         processBUMessage(bu, ctrlInfo);
     }
+    else if (dynamic_cast<NemoBindingUpdate*>(mipv6Msg))
+    {
+        EV << "Message recognized as NEMO BINDING UPDATE (BU)" << endl;
+        NemoBindingUpdate *nbu = (NemoBindingUpdate*)mipv6Msg;
+        processNBUMessage(nbu, ctrlInfo);
+    }
     else if (dynamic_cast<BindingAcknowledgement*>(mipv6Msg))
     {
-        EV << "Message recognised as BINDING ACKNOWLEDGEMENT (BA)" << endl;
+        EV << "Message recognized as BINDING ACKNOWLEDGEMENT (BA)" << endl;
         //EV << "\n<<<<<<<<Giving Control to processBAMessage()>>>>>>>\n";
         BindingAcknowledgement *ba = (BindingAcknowledgement*)mipv6Msg;
         processBAMessage(ba, ctrlInfo);
     }
+    else if (dynamic_cast<BindingAcknowledgement*>(mipv6Msg))
+    {
+        EV << "Message recognized as NEMO BINDING ACKNOWLEDGEMENT (BA)" << endl;
+        NemoBindingAcknowledgement *nba = (NemoBindingAcknowledgement*)mipv6Msg;
+        processNBAMessage(nba, ctrlInfo);
+     }
     // 28.08.07 - CB
     else if (dynamic_cast<HomeTestInit*>(mipv6Msg))
     {
-        EV << "Message recognised as HOME TEST INIT (HoTI)" << endl;
+        EV << "Message recognized as HOME TEST INIT (HoTI)" << endl;
         processHoTIMessage((HomeTestInit*)mipv6Msg, ctrlInfo);
     }
     else if (dynamic_cast<CareOfTestInit*>(mipv6Msg))
     {
-        EV << "Message recognised as CARE-OF TEST INIT (CoTI)" << endl;
+        EV << "Message recognized as CARE-OF TEST INIT (CoTI)" << endl;
         processCoTIMessage((CareOfTestInit*)mipv6Msg, ctrlInfo);
     }
     else if (dynamic_cast<HomeTest*>(mipv6Msg))
     {
-        EV << "Message recognised as HOME TEST (HoT)" << endl;
+        EV << "Message recognized as HOME TEST (HoT)" << endl;
         processHoTMessage((HomeTest*)mipv6Msg, ctrlInfo);
     }
     else if (dynamic_cast<CareOfTest*>(mipv6Msg))
     {
-        EV << "Message recognised as CARE-OF TEST (CoT)" << endl;
+        EV << "Message recognized as CARE-OF TEST (CoT)" << endl;
         processCoTMessage((CareOfTest*)mipv6Msg, ctrlInfo);
     }
     else if (dynamic_cast<BindingRefreshRequest*>(mipv6Msg))
     {
-        EV << "Message recognised as Binding Refresh Request" << endl;
+        EV << "Message recognized as Binding Refresh Request" << endl;
         processBRRMessage((BindingRefreshRequest*)mipv6Msg, ctrlInfo);
     }
     else
     {
-        EV << "Unrecognised mobility message... Dropping" << endl;
+        EV << "Unrecognized mobility message... Dropping" << endl;
         delete ctrlInfo;
         delete mipv6Msg;
     }
@@ -275,32 +305,40 @@ void xMIPv6::initiateMIPv6Protocol(InterfaceEntry *ie, const IPv6Address& CoA)
 {
     Enter_Method_Silent(); // can be called by NeighborDiscovery module
 
-    if (!(ie->isLoopback()) && (rt6->isMobileNode() || rt6->isMobileRouter()))
+    if (!(ie->isLoopback()))
     {
-        EV << "Initiating Mobile IPv6 protocol..." << endl;
+        if (rt6->isMobileNode() || rt6->isMobileRouter())
+        {
+            EV << "Initiating Mobile IPv6 protocol..." << endl;
 
-        // The MN is supposed to send a BU to the HA after forming a CoA
-        IPv6Address haDest = ie->ipv6Data()->getHomeAgentAddress(); // HA address for use in the BU for Home Registration
+            // The MN is supposed to send a BU to the HA after forming a CoA
+            IPv6Address haDest = ie->ipv6Data()->getHomeAgentAddress(); // HA address for use in the BU for Home Registration
 
-        createBUTimer(haDest, ie);
+            EV << "Creating BU timer w/ dest address = " << haDest << endl;
 
-        // RO with CNs is triggered after receiving a valid BA from the HA
+            createBUTimer(haDest, ie);
+        }
+
     }
 
     // a movement occured -> BUL entries for CNs not valid anymore
     IPv6Address HoA = ie->ipv6Data()->getMNHomeAddress();
 
-    for (itCNList = cnList.begin(); itCNList != cnList.end(); itCNList++) // run an iterator through the CN map
+    if(rt6->isMobileNode())
     {
-        IPv6Address cn = *(itCNList);
-        BindingUpdateList::BindingUpdateListEntry* bulEntry = bul->fetch(cn); // CB, 10.10.08
-        ASSERT(bulEntry != NULL); // CB, 10.10.08
-        //bul->resetBindingCacheEntry(*bulEntry, HoA);
-        bul->removeBinding(cn);
-        // care-of token becomes invalid with new CoA
-        bul->resetCareOfToken(cn, HoA);
-        tunneling->destroyTunnelForExitAndTrigger(HoA, cn);
+        for (itCNList = cnList.begin(); itCNList != cnList.end(); itCNList++) // run an iterator through the CN map
+        {
+            IPv6Address cn = *(itCNList);
+            BindingUpdateList::BindingUpdateListEntry* bulEntry = bul->fetch(cn); // CB, 10.10.08
+            ASSERT(bulEntry != NULL); // CB, 10.10.08
+            //bul->resetBindingCacheEntry(*bulEntry, HoA);
+            bul->removeBinding(cn);
+            // care-of token becomes invalid with new CoA
+            bul->resetCareOfToken(cn, HoA);
+            tunneling->destroyTunnelForExitAndTrigger(HoA, cn);
+        }
     }
+
 }
 
 /**
@@ -328,7 +366,14 @@ void xMIPv6::returningHome(const IPv6Address& CoA, InterfaceEntry* ie)
     tunneling->destroyTunnel(CoA, HA);
     // unregister binding from HA..
     createDeregisterBUTimer(HA, ie);
-    bul->setMobilityState(HA, BindingUpdateList::DEREGISTER);
+    if (rt6->isMobileNode())
+    {
+        bul->setMobilityState(HA, BindingUpdateList::DEREGISTER);
+    }
+    if (rt6->isMobileRouter())
+    {
+        nbul->setMobilityState(HA,NemoBindingUpdateList::DEREGISTER);
+    }
 
     // ...and then the messages for CNs
     for (itCNList = cnList.begin(); itCNList != cnList.end(); itCNList++) // run an iterator through the CN map
@@ -356,26 +401,51 @@ void xMIPv6::returningHome(const IPv6Address& CoA, InterfaceEntry* ie)
 void xMIPv6::createBUTimer(const IPv6Address& buDest, InterfaceEntry* ie)
 {
     // update 12.06.08 - CB
-    // if we send a new BU we can delete any potential existing BUL expiry timer for this destination
-    cancelTimerIfEntry(buDest, ie->getInterfaceId(), KEY_BUL_EXP);
+    // if we send a new BU, we can delete any potential existing BUL expiry timer for this destination
+    cancelTimerIfEntry(buDest, ie->getInterfaceId(), KEY_BUL_EXP); //fayruz coba comment ini karna transmitIfListEntry keknya error
 
-    BindingUpdateList::BindingUpdateListEntry* bulEntry = bul->fetch(buDest); // CB, 10.10.08
-    ASSERT(bulEntry != NULL); // CB, 10.10.08
-
-    if (bulEntry->state != BindingUpdateList::DEREGISTER)
-        bulEntry->state = BindingUpdateList::REGISTER;
-
-    // update lifetime, 14.9.07
-    //if (homeRegistration)
-    if (buDest == ie->ipv6Data()->getHomeAgentAddress()) // update 12.06.08 - CB
-        createBUTimer(buDest, ie, ie->ipv6Data()->_getMaxHABindingLifeTime(), true);
-    else
+    if (rt6->isMobileNode())
     {
-        if (bulEntry != NULL && bulEntry->state == BindingUpdateList::DEREGISTER) // CB, 10.10.08
-            createDeregisterBUTimer(buDest, ie); // CB, 10.10.08
+        BindingUpdateList::BindingUpdateListEntry* bulEntry = bul->fetch(buDest); // CB, 10.10.08
+        ASSERT(bulEntry != NULL); // CB, 10.10.08
+
+        if (bulEntry->state != BindingUpdateList::DEREGISTER)
+            bulEntry->state = BindingUpdateList::REGISTER;
+
+        // update lifetime, 14.9.07
+        //if (homeRegistration)
+        if (buDest == ie->ipv6Data()->getHomeAgentAddress()) // update 12.06.08 - CB
+            createBUTimer(buDest, ie, ie->ipv6Data()->_getMaxHABindingLifeTime(), true);
         else
-            createBUTimer(buDest, ie, ie->ipv6Data()->_getMaxRRBindingLifeTime(), false);
+        {
+            if (bulEntry != NULL && bulEntry->state == BindingUpdateList::DEREGISTER) // CB, 10.10.08
+                createDeregisterBUTimer(buDest, ie); // CB, 10.10.08
+            else
+                createBUTimer(buDest, ie, ie->ipv6Data()->_getMaxRRBindingLifeTime(), false);
+        }
     }
+
+    if (rt6->isMobileRouter())
+    {
+        NemoBindingUpdateList::NemoBindingUpdateListEntry* nbulEntry = nbul->fetch(buDest); // CB, 10.10.08
+        ASSERT(nbulEntry != NULL); // CB, 10.10.08
+
+        if (nbulEntry->state != NemoBindingUpdateList::DEREGISTER)
+            nbulEntry->state = NemoBindingUpdateList::REGISTER;
+
+        // update lifetime, 14.9.07
+        //if (homeRegistration)
+        if (buDest == ie->ipv6Data()->getHomeAgentAddress()) // update 12.06.08 - CB
+            createBUTimer(buDest, ie, ie->ipv6Data()->_getMaxHABindingLifeTime(), true);
+        else
+        {
+            if (nbulEntry != NULL && nbulEntry->state == NemoBindingUpdateList::DEREGISTER) // CB, 10.10.08
+                createDeregisterBUTimer(buDest, ie); // CB, 10.10.08
+            else
+                createBUTimer(buDest, ie, ie->ipv6Data()->_getMaxRRBindingLifeTime(), false);
+        }
+    }
+
 }
 
 void xMIPv6::createDeregisterBUTimer(const IPv6Address& buDest, InterfaceEntry* ie)
@@ -419,24 +489,46 @@ void xMIPv6::createBUTimer(const IPv6Address& buDest, InterfaceEntry* ie, const 
     buIfEntry->ifEntry = ie;
     buIfEntry->timer = buTriggerMsg;
 
-    // update 10.09.07 - CB
-    // retrieve sequence number from BUL
-    // if no entry exists, the method will return 0
-    buIfEntry->buSequenceNumber = bul->getSequenceNumber(buDest); //the sequence number gets initialized and stored here
-
     buIfEntry->lifeTime = lifeTime;
 
-    /*11.8
-      If the mobile node is sending a Binding Update and does not have
-      an existing binding at the home agent, it SHOULD use
-      InitialBindackTimeoutFirstReg (see Section 13) as a value for the
-      initial retransmission timer.*/
-    if (!bul->isInBindingUpdateList(buDest))
-        buIfEntry->ackTimeout = ie->ipv6Data()->_getInitialBindAckTimeoutFirst(); //the backoff constant gets initialised here
-    /*Otherwise, the mobile node should use the specified value of
-      INITIAL_BINDACK_TIMEOUT for the initial retransmission timer.*/
-    else
-        buIfEntry->ackTimeout = ie->ipv6Data()->_getInitialBindAckTimeout();  // if there's an entry in the BUL, use different value
+    if (rt6->isMobileNode())
+    {
+        // update 10.09.07 - CB
+        // retrieve sequence number from BUL
+        // if no entry exists, the method will return 0
+        buIfEntry->buSequenceNumber = bul->getSequenceNumber(buDest); //the sequence number gets initialized and stored here
+
+        /*11.8
+          If the mobile node is sending a Binding Update and does not have
+          an existing binding at the home agent, it SHOULD use
+          InitialBindackTimeoutFirstReg (see Section 13) as a value for the
+          initial retransmission timer.*/
+        if (!bul->isInBindingUpdateList(buDest))
+            buIfEntry->ackTimeout = ie->ipv6Data()->_getInitialBindAckTimeoutFirst(); //the backoff constant gets initialised here
+        /*Otherwise, the mobile node should use the specified value of
+          INITIAL_BINDACK_TIMEOUT for the initial retransmission timer.*/
+        else
+            buIfEntry->ackTimeout = ie->ipv6Data()->_getInitialBindAckTimeout();  // if there's an entry in the BUL, use different value
+    }
+    if (rt6->isMobileRouter())
+    {
+        // update 10.09.07 - CB
+        // retrieve sequence number from BUL
+        // if no entry exists, the method will return 0
+        buIfEntry->buSequenceNumber = nbul->getSequenceNumber(buDest); //the sequence number gets initialized and stored here
+
+        /*11.8
+          If the mobile node is sending a Binding Update and does not have
+          an existing binding at the home agent, it SHOULD use
+          InitialBindackTimeoutFirstReg (see Section 13) as a value for the
+          initial retransmission timer.*/
+        if (!nbul->isInBindingUpdateList(buDest))
+            buIfEntry->ackTimeout = ie->ipv6Data()->_getInitialBindAckTimeoutFirst(); //the backoff constant gets initialised here
+        /*Otherwise, the mobile node should use the specified value of
+          INITIAL_BINDACK_TIMEOUT for the initial retransmission timer.*/
+        else
+            buIfEntry->ackTimeout = ie->ipv6Data()->_getInitialBindAckTimeout();  // if there's an entry in the BUL, use different value
+    }
 
     buIfEntry->homeRegistration = homeRegistration; // added by CB, 28.08.07
 
@@ -454,6 +546,7 @@ void xMIPv6::sendPeriodicBU(cMessage *msg)
     //EV << "### lifetime of buIfEntry=" << buIfEntry->lifeTime << " and seq#= " << buIfEntry->buSequenceNumber << endl;
     InterfaceEntry* ie = buIfEntry->ifEntry; //copy the ie info
     IPv6Address& buDest = buIfEntry->dest;
+
     buIfEntry->presentSentTimeBU = simTime(); //records the present time at which BU is sent
 
     buIfEntry->nextScheduledTime = buIfEntry->presentSentTimeBU + buIfEntry->ackTimeout;
@@ -525,117 +618,151 @@ void xMIPv6::createAndSendBUMessage(const IPv6Address& dest, InterfaceEntry* ie,
     if (CoA.isUnspecified())
         CoA = ie->ipv6Data()->getPreferredAddress(); // in case a CoA is not availabile (e.g. returning home)
 
-    BindingUpdate *bu = new BindingUpdate("Binding Update");
+    if(rt6->isMobileNode())
+    {
+        BindingUpdate *bu = new BindingUpdate("Binding Update");
 
-    /*11.7.1
-      To register a care-of address or to extend the lifetime of an
-      existing registration, the mobile node sends a packet to its home
-      agent containing a Binding Update, with the packet constructed as
-      follows:*/
-    /*11.7.2
-     A Binding Update is created as follows:*/
-    bu -> setMobilityHeaderType(BINDING_UPDATE);
+        /*11.7.1
+          To register a care-of address or to extend the lifetime of an
+          existing registration, the mobile node sends a packet to its home
+          agent containing a Binding Update, with the packet constructed as
+          follows:*/
+        /*11.7.2
+         A Binding Update is created as follows:*/
+        bu -> setMobilityHeaderType(BINDING_UPDATE);
 
-    /*11.7.1
-      o  The value specified in the Lifetime field MUST be non-zero and
-         SHOULD be less than or equal to the remaining valid lifetime of
-         the home address and the care-of address specified for the
-         binding.*/
-    /*6.1.7
-      Lifetime
-      16-bit unsigned integer.  The number of time units remaining
-      before the binding MUST be considered expired.  A value of zero
-      indicates that the Binding Cache entry for the mobile node MUST be
-      deleted.  (In this case the specified care-of address MUST also be
-      set equal to the home address.)  One time unit is 4 seconds.
-     */
-    bu -> setLifetime(lifeTime / 4);
+        /*11.7.1
+          o  The value specified in the Lifetime field MUST be non-zero and
+             SHOULD be less than or equal to the remaining valid lifetime of
+             the home address and the care-of address specified for the
+             binding.*/
+        /*6.1.7
+          Lifetime
+          16-bit unsigned integer.  The number of time units remaining
+          before the binding MUST be considered expired.  A value of zero
+          indicates that the Binding Cache entry for the mobile node MUST be
+          deleted.  (In this case the specified care-of address MUST also be
+          set equal to the home address.)  One time unit is 4 seconds.
+         */
+        bu -> setLifetime(lifeTime / 4);
 
-    bu -> setSequence(buSeq);
+        bu -> setSequence(buSeq);
 
-    /*11.7.1
-      o  The Acknowledge (A) bit MUST be set in the Binding Update.*/
-    bu -> setAckFlag(true);
+        /*11.7.1
+          o  The Acknowledge (A) bit MUST be set in the Binding Update.*/
+        bu -> setAckFlag(true);
 
-    /*o  The Home Registration (H) bit MUST be set in the Binding Update.*/
-    // set flag depending on whether the BU goes to HA or not - CB
-    bu->setHomeRegistrationFlag(dest == ie->ipv6Data()->getHomeAgentAddress()); // update CB 07.08.08
+        /*o  The Home Registration (H) bit MUST be set in the Binding Update.*/
+        // set flag depending on whether the BU goes to HA or not - CB
+        bu->setHomeRegistrationFlag(dest == ie->ipv6Data()->getHomeAgentAddress()); // update CB 07.08.08
 
-    /*11.7.1
-      o  If the mobile node's link-local address has the same interface
-         identifier as the home address for which it is supplying a new
-         care-of address, then the mobile node SHOULD set the Link-Local
-         Address Compatibility (L) bit.
-      o  If the home address was generated using RFC 3041 [18], then the
-         link local address is unlikely to have a compatible interface
-         identifier.  In this case, the mobile node MUST clear the Link-
-         Local Address Compatibility (L) bit.*/
-    // The link identifiers are always the same in our simulations. As
-    // long as this is not changing, we can stick to the value "true"
-    bu -> setLinkLocalAddressCompatibilityFlag(true); // fine for now
+        /*11.7.1
+          o  If the mobile node's link-local address has the same interface
+             identifier as the home address for which it is supplying a new
+             care-of address, then the mobile node SHOULD set the Link-Local
+             Address Compatibility (L) bit.
+          o  If the home address was generated using RFC 3041 [18], then the
+             link local address is unlikely to have a compatible interface
+             identifier.  In this case, the mobile node MUST clear the Link-
+             Local Address Compatibility (L) bit.*/
+        // The link identifiers are always the same in our simulations. As
+        // long as this is not changing, we can stick to the value "true"
+        bu -> setLinkLocalAddressCompatibilityFlag(true); // fine for now
 
-    bu -> setKeyManagementFlag(false); // no IKE/IPsec available anyway
+        bu -> setKeyManagementFlag(false); // no IKE/IPsec available anyway
 
-    /*11.7.1
-      o  The packet MUST contain a Home Address destination option, giving
-         the mobile node's home address for the binding.*/
-    /*11.7.2
-      o  The home address of the mobile node MUST be added to the packet in
-         a Home Address destination option, unless the Source Address is
-         the home address.*/
-    IPv6Address HoA = ie->ipv6Data()->getGlobalAddress(IPv6InterfaceData::HoA);
-    ASSERT(!HoA.isUnspecified());
+        /*11.7.1
+          o  The packet MUST contain a Home Address destination option, giving
+             the mobile node's home address for the binding.*/
+        /*11.7.2
+          o  The home address of the mobile node MUST be added to the packet in
+             a Home Address destination option, unless the Source Address is
+             the home address.*/
+        IPv6Address HoA = ie->ipv6Data()->getGlobalAddress(IPv6InterfaceData::HoA);
+        ASSERT(!HoA.isUnspecified());
 
-    // As every IPv6 Datagram sending the BU has to have the Home Address Option, I have
-    // made this field a part of BU message to ease my task of simulation...
-    // this can be accessed from the InterfaceTable of the MN.
-    bu->setHomeAddressMN(HoA); //HoA of MN
+        // As every IPv6 Datagram sending the BU has to have the Home Address Option, I have
+        // made this field a part of BU message to ease my task of simulation...
+        // this can be accessed from the InterfaceTable of the MN.
+        bu->setHomeAddressMN(HoA); //HoA of MN
 
 
-    /*11.7.2
-      o  The Mobility Header is constructed according to rules in Section
-         6.1.7 and Section 5.2.6, including the Binding Authorization Data
-         (calculated as defined in Section 6.2.7) and possibly the Nonce
-         Indices mobility options.*/
-    bu->setBindingAuthorizationData(bindAuthData); // added for BU to CN, 28.08.07 - CB
+        /*11.7.2
+          o  The Mobility Header is constructed according to rules in Section
+             6.1.7 and Section 5.2.6, including the Binding Authorization Data
+             (calculated as defined in Section 6.2.7) and possibly the Nonce
+             Indices mobility options.*/
+        bu->setBindingAuthorizationData(bindAuthData); // added for BU to CN, 28.08.07 - CB
 
-    // update 13.09.07 - CB
-    int nonceIndicesSize = 0;
+        // update 13.09.07 - CB
+        int nonceIndicesSize = 0;
 
-    if (! bu->getHomeRegistrationFlag())
-        nonceIndicesSize = SIZE_NONCE_INDICES;
+        if (! bu->getHomeRegistrationFlag())
+            nonceIndicesSize = SIZE_NONCE_INDICES;
 
-    // setting message size, 10.09.07 - CB
-    int bindAuthSize = 0;
+        // setting message size, 10.09.07 - CB
+        int bindAuthSize = 0;
 
-    if (bindAuthData != UNDEFINED_BIND_AUTH_DATA)
-        bindAuthSize = SIZE_BIND_AUTH_DATA;  // (6.2.3 PadN = 16 bit) -> no padding required if nonces provided // TODO check whether nonces valid
+        if (bindAuthData != UNDEFINED_BIND_AUTH_DATA)
+            bindAuthSize = SIZE_BIND_AUTH_DATA;  // (6.2.3 PadN = 16 bit) -> no padding required if nonces provided // TODO check whether nonces valid
 
-    bu->setByteLength(SIZE_MOBILITY_HEADER + SIZE_BU + SIZE_HOA_OPTION + bindAuthSize + nonceIndicesSize);
+        bu->setByteLength(SIZE_MOBILITY_HEADER + SIZE_BU + SIZE_HOA_OPTION + bindAuthSize + nonceIndicesSize);
 
-    /*11.7.1
-      When sending a Binding Update to its home agent, the mobile node MUST
-      also create or update the corresponding Binding Update List entry, as
-      specified in Section 11.7.2.*/
-    updateBUL(bu, dest, CoA, ie, simTime());
+        /*11.7.1
+          When sending a Binding Update to its home agent, the mobile node MUST
+          also create or update the corresponding Binding Update List entry, as
+          specified in Section 11.7.2.*/
+        updateBUL(bu, dest, CoA, ie, simTime());
 
-    /*11.7.1
-      o  The care-of address for the binding MUST be used as the Source
-         Address in the packet's IPv6 header, unless an Alternate Care-of
-         Address mobility option is included in the Binding Update.  This
-         option MUST be included in all home registrations, as the ESP
-         protocol will not be able to protect care-of addresses in the IPv6
-         header.  (Mobile IPv6 implementations that know they are using
-         IPsec AH to protect a particular message might avoid this option.
-         For brevity the usage of AH is not discussed in this document.)*/
-    /*11.7.2
-      o  The current care-of address of the mobile node MUST be sent either
-         in the Source Address of the IPv6 header, or in the Alternate
-         Care-of Address mobility option.
-      o  The Destination Address of the IPv6 header MUST contain the
-         address of the correspondent node.*/
-    sendMobilityMessageToIPv6Module(bu, dest, CoA, ie->getInterfaceId());
-    //sendMobilityMessageToIPv6Module(bu, dest);
+        /*11.7.1
+          o  The care-of address for the binding MUST be used as the Source
+             Address in the packet's IPv6 header, unless an Alternate Care-of
+             Address mobility option is included in the Binding Update.  This
+             option MUST be included in all home registrations, as the ESP
+             protocol will not be able to protect care-of addresses in the IPv6
+             header.  (Mobile IPv6 implementations that know they are using
+             IPsec AH to protect a particular message might avoid this option.
+             For brevity the usage of AH is not discussed in this document.)*/
+        /*11.7.2
+          o  The current care-of address of the mobile node MUST be sent either
+             in the Source Address of the IPv6 header, or in the Alternate
+             Care-of Address mobility option.
+          o  The Destination Address of the IPv6 header MUST contain the
+             address of the correspondent node.*/
+        sendMobilityMessageToIPv6Module(bu, dest, CoA, ie->getInterfaceId());
+        //sendMobilityMessageToIPv6Module(bu, dest);
+    }
+
+    if(rt6->isMobileRouter())
+    {
+        NemoBindingUpdate *nbu = new NemoBindingUpdate("NEMO Binding Update");
+
+        IPv6Address prefiks = ie->ipv6Data()->getMNPrefix();
+
+        nbu -> setMobilityHeaderType(NEMO_BINDING_UPDATE);
+        nbu -> setLifetime(lifeTime / 4);
+        nbu -> setSequence(buSeq);
+        nbu -> setAckFlag(true);
+        nbu -> setHomeRegistrationFlag(dest == ie->ipv6Data()->getHomeAgentAddress()); // update CB 07.08.08
+        nbu -> setLinkLocalAddressCompatibilityFlag(true); // fine for now
+        nbu -> setKeyManagementFlag(false); // no IKE/IPsec available anyway
+
+        IPv6Address HoA = ie->ipv6Data()->getGlobalAddress(IPv6InterfaceData::HoA);
+        ASSERT(!HoA.isUnspecified());
+
+        nbu->setHomeAddressMN(HoA); //HoA of MN
+        nbu->setMobileRouter(true);
+//        nbu->setPrefixAddress(prefiks);
+
+        nbu->setByteLength(SIZE_MOBILITY_HEADER + SIZE_BU + SIZE_HOA_OPTION); //TODO: is this right? please re-check
+
+        updateNBUL(nbu, ie->ipv6Data()->getHomeAgentAddress(), CoA, ie, simTime());
+
+        EV << "Sending NBU to " << ie->ipv6Data()->getHomeAgentAddress() << endl;
+
+        sendMobilityMessageToIPv6Module(nbu, ie->ipv6Data()->getHomeAgentAddress(), CoA, ie->getInterfaceId()); //no problemo. 1st parameter = cMessage
+    }
+
 }
 
 void xMIPv6::updateBUL(BindingUpdate* bu, const IPv6Address& dest, const IPv6Address& CoA,
@@ -661,6 +788,27 @@ void xMIPv6::updateBUL(BindingUpdate* bu, const IPv6Address& dest, const IPv6Add
     //ASSERT(bul);
     bul->addOrUpdateBUL(dest, HoA, CoA, buLife, buSeq, sendTime); //, nextSentTime); //updates the binding Update List
     //EV << "#### Updated BUL with lifetime=" << buLife << "and sentTime=" << sentTime << endl;
+}
+
+void xMIPv6::updateNBUL(NemoBindingUpdate* nbu, const IPv6Address& dest, const IPv6Address& CoA,
+        InterfaceEntry* ie, const simtime_t sendTime)
+{
+    uint buLife = 4 * nbu->getLifetime(); /* 6.1.7 One time unit is 4 seconds. */ // update 11.06.08 - CB
+    uint buSeq = nbu -> getSequence();
+
+    IPv6Address HoA = nbu->getHomeAddressMN();
+
+//    IPv6Address prefiks = nbu->getPrefixAddress();
+
+    BUTransmitIfEntry *buIfEntry = fetchBUTransmitIfEntry(ie, dest);
+
+     if (buIfEntry == NULL)
+     {
+        EV << "No scheduled BU entry available!\n";
+        return;
+     }
+
+     nbul->addOrUpdateBUL(dest, HoA, CoA, buLife, buSeq, sendTime, true, ie->getInterfaceId());
 }
 
 xMIPv6::BUTransmitIfEntry* xMIPv6::fetchBUTransmitIfEntry(InterfaceEntry *ie, const IPv6Address& dest)
@@ -697,7 +845,8 @@ void xMIPv6::sendMobilityMessageToIPv6Module(cMessage *msg, const IPv6Address& d
 
     EV << "controlInfo: DestAddr=" << controlInfo->getDestAddr()
        << "SrcAddr=" << controlInfo->getSrcAddr()
-       << "InterfaceId=" << controlInfo->getInterfaceId() << endl;
+       << "InterfaceId=" << controlInfo->getInterfaceId()
+       << "SendTime=" << sendTime << endl;
 
     // TODO solve the HA DAD problem in a different way
     // (delay currently specified via the sendTime parameter)
@@ -711,20 +860,25 @@ void xMIPv6::sendMobilityMessageToIPv6Module(cMessage *msg, const IPv6Address& d
 void xMIPv6::sendMobilityMessageToIPv6Module(cMessage *msg, const IPv6Address& destAddr)
 {
     EV << "\n<<======THIS IS THE (SMALL) ROUTINE FOR APPENDING CONTROL INFO TO MOBILITY MESSAGES =====>>\n";
+
     IPv6ControlInfo *controlInfo = new IPv6ControlInfo();
     controlInfo->setProtocol(IP_PROT_IPv6EXT_MOB); //specifies the next header value = 135 for the Mobility Header
     controlInfo->setDestAddr(destAddr);
     controlInfo->setHopLimit(255);
     controlInfo->setInterfaceId(-1);
     msg->setControlInfo(controlInfo);
+
     EV << "\n<<======CONTROL INFO APPENDED SUCCESSFULLY; SENDING MOBILITY MESSAGE TO IPv6 MODULE =====>>\n";
+
     EV << "controlInfo: DestAddr=" << controlInfo->destAddr()
        << "SrcAddr=" << controlInfo->srcAddr()
        << "InterfaceId=" << controlInfo->interfaceId() << endl;
+
     // TODO solve the HA DAD problem in a different way
     if (dynamic_cast<BindingAcknowledgement*>(msg) && rt6->isHomeAgent())
     {
         BindingAcknowledgement *ba = check_and_cast<BindingAcknowledgement*>(msg);
+
         if (ba->getStatus() < 128 && (ba->getLifetime() != 0))
         {
             EV << "Message is positive BA with status: " << ba->getStatus() << ", sending it with a PSEUDO DAD Delay of 60 sec" << endl;
@@ -732,6 +886,7 @@ void xMIPv6::sendMobilityMessageToIPv6Module(cMessage *msg, const IPv6Address& d
             return;
         }
     }
+
     send(msg,"toIPv6");
 }
 */
@@ -1020,6 +1175,196 @@ void xMIPv6::processBUMessage(BindingUpdate* bu, IPv6ControlInfo* ctrlInfo)
     delete ctrlInfo;
 }
 
+void xMIPv6::processNBUMessage(NemoBindingUpdate* nbu, IPv6ControlInfo* ctrlInfo)
+{
+    // TODO tambahan untuk generate BAck error nomor 140-143
+        EV << "Entered BU processing method" << endl;
+
+        if (! rt6->isHomeAgent())     // rewrote condition to make it more clear - CB
+        {
+            EV << "Wrong Node: not HA" << endl;
+
+            if (ev.isGUI())
+                bubble("Wrong Node: not HA");
+
+            delete nbu;
+            delete ctrlInfo;
+            return;
+        }
+
+        BAStatus status;
+        bool validBUMessage;
+        validBUMessage = validateNBUMessage(nbu, ctrlInfo);
+
+        if (validBUMessage)
+        {
+            IPv6Address& HoA = nbu -> getHomeAddressMN();
+            IPv6Address& CoA = ctrlInfo -> getSrcAddr();
+            IPv6Address& destAddress = ctrlInfo -> getDestAddr();
+//            IPv6Address& prefiks = nbu -> getPrefixAddress();
+            uint buLifetime = nbu->getLifetime() * 4; /* 6.1.7 One time unit is 4 seconds. */
+            uint buSequence = nbu->getSequence();
+            bool homeRegistration = nbu->getHomeRegistrationFlag();
+            bool mR = nbu->getMobileRouter();
+
+            if ((buLifetime == 0) || (CoA == HoA))  // received BU is a DEREGISTRATION BU
+            {
+                if ( ! validateNBUderegisterMessage(nbu, ctrlInfo)) // HAs have to validate the BU
+                {
+                    status = NOT_HA_FOR_THIS_MN; //enum defined in MobilityHeader.msg file
+                    uint baSeqNumber = nbu->getSequence(); //the sequence number from Rxed BU is copied into BA.
+                    createAndSendNBAMessage(destAddress, CoA, ctrlInfo, status, baSeqNumber, buLifetime, mR, 0); // swapped src and dest, 4.9.07 - CB, update lifeTime 14.9.07 - CB
+                    EV << "Error: Not HA for this MN. Responding with appropriate BA...\n";
+                    delete nbu;
+                    delete ctrlInfo;
+                    return;
+                }
+
+                nbc->deleteEntry(HoA);
+
+                tunneling->destroyTunnelFromTrigger(HoA);
+
+                // kill BC expiry timer
+                cancelTimerIfEntry(HoA, ctrlInfo->getInterfaceId(), KEY_BC_EXP);
+
+                if (nbu->getAckFlag())
+                {
+                    status = BINDING_UPDATE_ACCEPTED; //enum defined in MobilityHeader.msg file
+
+                    uint baSeqNumber = nbu->getSequence();
+                    uint lifeTime = 0;
+
+                    createAndSendNBAMessage(destAddress, CoA, ctrlInfo, status, baSeqNumber,
+                            lifeTime, mR, 0); // swapped src and dest, 4.9.07 - CB
+                }
+
+                EV << "Deregistered binding\n";
+                bubble("Deregistered binding!");
+            }
+
+            else    // not a deregistration BU
+            {
+                //fayruz 06.03.2015
+                // RFC 3963 sec. 6.2. This section describes the processing of the Binding Update if the Mobile Router (R) Flag is set.
+                if(mR)
+                {
+                    /* The Home Registration (H) Flag MUST be set. If it is not, the
+                    Home Agent MUST reject the Binding Update and send a Binding
+                    Acknowledgement with status set to 140*/
+                    if ( ! homeRegistration)
+                    {
+                        status = MOBILE_ROUTER_OPERATION_NOT_PERMITTED;
+                        uint baSeqNumber = nbu->getSequence(); //the sequence number from Rxed BU is copied into BA.
+                        createAndSendNBAMessage(destAddress, CoA, ctrlInfo, status,
+                        baSeqNumber, buLifetime, mR, 0); // swapped src and dest, 4.9.07 - CB, update lifeTime 14.9.07 - CB
+                        EV << "Error: Mobile Router Flag is set, but Home Registration Flag is not set. Mobile Router operation is not permitted. Responding with appropriate BA...\n";
+
+                        delete nbu;
+                        delete ctrlInfo;
+                        return;
+                    }
+
+                    /* fayruz 26.03.2015 .  RFC 3963 sec 6.2
+                     * If the Home Agent has a valid binding cache entry for the Mobile
+                     * Router, and if the Binding Update has the Mobile Router Flag (R) set
+                     * to a value different from that in the existing binding cache entry,
+                     * then the Home Agent MUST reject the Binding Update and send a Binding
+                     * Acknowledgement with status set to 139 (Registration type change disallowed).
+                     */
+                    if( nbc->isInBindingCache(HoA) && (mR!=nbc->getMobileRouter(HoA)))
+                    {
+                        status = REGISTRATION_TYPE_CHANGE_DISALLOWED;
+
+                        uint baSeqNumber = nbu->getSequence(); //the sequence number from Rxed BU is copied into BA.
+                        createAndSendNBAMessage(destAddress, CoA, ctrlInfo, status,
+                        baSeqNumber, buLifetime, mR, 0); // swapped src and dest, 4.9.07 - CB, update lifeTime 14.9.07 - CB
+                        EV << "Error: Mobile Router Flag is different with MR flag in Binding Cache. Registration type change disallowed. Responding with appropriate BA...\n";
+
+                        delete nbu;
+                        delete ctrlInfo;
+                        return;
+                    }
+                }
+
+                if (homeRegistration && (! rt6->isOnLinkAddress(HoA)) )
+                {
+                    // TODO: di Nemo, ini boleh kalau ga onlink, asalkan masih termasuk prefix yang terdaftar di HA
+                    //  tapi di sini semua HoA diambil dari prefix on link sih. jadi kode di bawah ini belum diedit
+                    /* RFC 3963 sec. 6.2.
+                     * Mobile IPv6 specification [1] requires that the Home Address in
+                        the Binding Update be configured from a prefix advertised on the
+                        home link. Otherwise the Binding Update is rejected with status
+                        value 132 [1]. This specification relaxes this requirement so
+                        that the Home Agent rejects the Binding Update only if the Home
+                        Address does not belong to the prefix that the Home Agent is
+                        configured to serve.
+                     */
+
+                        status = NOT_HOME_SUBNET; //enum defined in MobilityHeader.msg file
+                        uint baSeqNumber = nbu->getSequence();
+                        uint lifeTime = 0;
+                        createAndSendNBAMessage(destAddress, CoA, ctrlInfo, status, baSeqNumber,
+                                lifeTime, mR, 0);
+
+                        delete nbu;
+                        delete ctrlInfo;
+                        return;
+                }
+
+                bool existingBinding = nbc->isInBindingCache(HoA);
+                nbc->addOrUpdateBC(HoA, CoA, buLifetime, buSequence, homeRegistration); // moved to there, 11.9.07 - CB
+//                pt->addOrUpdatePT(HoA,prefiks);
+                // for both HA and CN we create a BCE expiry timer
+                createBCEntryExpiryTimer(HoA, ift->getInterfaceById(ctrlInfo->getInterfaceId()), simTime() + buLifetime);
+
+                if (nbu->getAckFlag() || rt6->isHomeAgent())
+                {
+                    status = BINDING_UPDATE_ACCEPTED; //enum defined in MobilityHeader.msg file
+
+                    uint baSeqNumber = nbu->getSequence();
+
+                    uint lifeTime = nbc->getLifetime(HoA);
+
+                    simtime_t sendTime;
+                    if (rt6->isHomeAgent())
+                        // HA has to do DAD in case this is a new binding for this HoA
+                        sendTime = existingBinding ? 0 : 1;
+                    else
+                        sendTime = 0;
+
+                    createAndSendNBAMessage(destAddress, CoA, ctrlInfo, status, baSeqNumber,
+                            lifeTime, mR, sendTime); // swapped src and dest, 4.9.07 - CB // corrected lifetime value 18.06.08 - CB
+
+                    /*If this Duplicate Address Detection fails for the given
+                      home address or an associated link local address, then the home agent
+                      MUST reject the complete Binding Update and MUST return a Binding
+                      Acknowledgement to the mobile node, in which the Status field is set
+                      to 134 (Duplicate Address Detection failed).*/
+                    // TODO
+
+                    IPv6Address& HA = destAddress;
+
+                    tunneling->destroyTunnelForEntryAndTrigger(HA, HoA);
+
+                    tunneling->createTunnel(IPv6Tunneling::NORMAL, HA, CoA, HoA);
+                }
+                else // condition: ! nbu->getAckFlag()
+                {
+                    EV << "BU Validated as OK: ACK FLAG NOT SET" << endl;
+                    bubble("!!!BU VALID --- ACK FLAG = False !!!");
+                }
+            }
+        }
+        else
+        {
+            EV << "BU Validation Failed: Dropping message" << endl;
+            bubble("BU Validation Failed: Dropping Packet");
+        }
+
+        delete nbu;
+        delete ctrlInfo;
+}
+
 bool xMIPv6::validateBUMessage(BindingUpdate *bu, IPv6ControlInfo *ctrlInfo)
 {
     // Performs BU Validation according to RFC3775 Sec 9.5.1
@@ -1133,10 +1478,66 @@ bool xMIPv6::validateBUMessage(BindingUpdate *bu, IPv6ControlInfo *ctrlInfo)
     return true; //result;
 }
 
+bool xMIPv6::validateNBUMessage(NemoBindingUpdate *nbu, IPv6ControlInfo *ctrlInfo)
+{
+    //TODO copas fungsi di bawah, edit edit sesuai rule nemo
+       // TODO untuk pesan error 140-143, siapa tau kudu dicek di sini, bukan di processNBUmsg
+       // Performs BU Validation according to RFC3775 Sec 9.5.1
+       // AND RFC 3963
+
+           EV << "\n<<<<<<<<<ROUTINE WHERE NEMO BU GETS VALIDATED>>>>>>>>>>>>>>><<\n";
+
+           IPv6Address& src = ctrlInfo->getSrcAddr();
+           IPv6Address homeAddress = nbu->getHomeAddressMN(); //confirm whether it is getHomeAddressMN() or simply homeAddress()
+           uint seqNumber = nbu->getSequence(); //The seq Number of the recieved BU
+           uint bcSeqNumber = nbc->readBCSequenceNumber(homeAddress); //The seq Number of the last recieved BU in the Binding cache
+           bool mR = nbu->getMobileRouter();
+
+           // restructured the following and removed "delete bu" - CB
+           if (!(src.isGlobal() && src.isUnicast()))
+           {
+               EV << "BU Validation Failed: SrcAdress is not unicast Global !" << endl;
+               EV << "Dropping unvalidated BU message" << endl;
+               bubble("!! BU Validation Failed !!");
+               return false; //result = false;
+           }
+           if (! (homeAddress.isGlobal() && homeAddress.isUnicast()))
+           {
+               EV << "BU Validation Failed: Home Adress of MN is not unicast Global !" << endl;
+               bubble("!! BU Validation Failed !!");
+               EV << "Dropping unvalidated BU message" << endl;
+               return false; //result = false;
+           }
+
+           else if (((bcSeqNumber % 65536) > seqNumber) || ((32768 + bcSeqNumber) % 65536 < seqNumber)) // update 10.9.07 - CB
+           {
+               EV << "BU Validation Failed: Received Seq#: " << seqNumber << " is LESS THAN in BC: "
+                  << bcSeqNumber << endl;
+               bubble("!! BU Validation Failed !!");
+               EV << "Dropping unvalidated BU message" << endl;
+
+               IPv6Address& destAddress = ctrlInfo->getDestAddr();
+
+               createAndSendNBAMessage(destAddress, homeAddress, ctrlInfo, SEQUENCE_NUMBER_OUT_OF_WINDOW,
+                               bcSeqNumber, 0, mR); // lifetime = 0 --> deregistration???
+
+               return false;
+           }
+
+           // If all the above tests are passed the Received BU is valid
+           EV << "BU validation passed" << endl;
+
+           if (ev.isGUI())
+               bubble("BU Validated");
+
+           return true; //result;
+}
+
 bool xMIPv6::validateBUderegisterMessage(BindingUpdate *bu, IPv6ControlInfo *ctrlInfo)
 {
     /*To begin processing the Binding Update, the home agent MUST perform
       the following test:
+
          o  If the receiving node has no entry marked as a home registration
       in its Binding Cache for this mobile node, then this node MUST
       reject the Binding Update and SHOULD return a Binding
@@ -1144,6 +1545,12 @@ bool xMIPv6::validateBUderegisterMessage(BindingUpdate *bu, IPv6ControlInfo *ctr
       set to 133 (not home agent for this mobile node).*/
     return bc->isInBindingCache(bu->getHomeAddressMN())
             && bc->getHomeRegistration(bu->getHomeAddressMN());
+}
+
+bool xMIPv6::validateNBUderegisterMessage(NemoBindingUpdate *nbu, IPv6ControlInfo *ctrlInfo)
+{
+    return nbc->isInBindingCache(nbu->getHomeAddressMN())
+                && nbc->getHomeRegistration(nbu->getHomeAddressMN());
 }
 
 void xMIPv6::createAndSendBAMessage(const IPv6Address& src, const IPv6Address& dest,
@@ -1211,6 +1618,27 @@ void xMIPv6::createAndSendBAMessage(const IPv6Address& src, const IPv6Address& d
         statVectorBAtoMN.record(1);
     else
         statVectorBAtoMN.record(2);*/
+}
+
+void xMIPv6::createAndSendNBAMessage(const IPv6Address& src, const IPv6Address& dest,
+        IPv6ControlInfo* ctrlInfo, const BAStatus& baStatus, const uint baSeq, const uint lifeTime, const bool mR, const simtime_t sendTime)
+{
+    EV << "Entered createAndSendBAMessage() method" << endl;
+
+        InterfaceEntry *ie = ift -> getInterfaceById(ctrlInfo -> getInterfaceId()); // To find the interface on which the BU was received
+
+        NemoBindingAcknowledgement *nba = new NemoBindingAcknowledgement("NEMO Binding Acknowledgement");
+        nba -> setMobilityHeaderType(BINDING_ACKNOWLEDGEMENT);
+        nba -> setStatus(baStatus);
+        nba -> setSequenceNumber(baSeq); //this sequence number will correspond to the ACKed BU
+        nba -> setMobileRouter(mR);
+
+        // we are providing lifetime as a parameter, 14.9.07 - CB
+        nba -> setLifetime(lifeTime / 4); /* 6.1.8 ...in time units of 4 seconds... */
+
+        nba->setByteLength(SIZE_MOBILITY_HEADER + SIZE_BACK);
+
+        sendMobilityMessageToIPv6Module(nba, dest, src, ie->getInterfaceId(), sendTime);
 }
 
 void xMIPv6::processBAMessage(BindingAcknowledgement* ba, IPv6ControlInfo* ctrlInfo)
@@ -1415,11 +1843,103 @@ void xMIPv6::processBAMessage(BindingAcknowledgement* ba, IPv6ControlInfo* ctrlI
     delete ba;
 }
 
+void xMIPv6::processNBAMessage(NemoBindingAcknowledgement* nba, IPv6ControlInfo* ctrlInfo)
+{
+    EV << "\n<<<<<<<<<This is where NEMO BA gets processed>>>>>>>>>\n";
+
+        IPv6Address& baSource = ctrlInfo->getSrcAddr();
+        InterfaceEntry *ie = ift->getInterfaceById(ctrlInfo->getInterfaceId()); //the interface on which the BAck was received
+
+        if (rt6->isMobileRouter())
+        {
+            if (!validateNBAck(*nba, ctrlInfo))
+            {
+                EV << "Discarding invalid BAck...\n";
+                delete ctrlInfo;
+                delete nba;
+                return;
+            }
+
+            if (nba->getStatus() < 128)
+            {
+                EV << "Binding was accepted." << endl;
+
+                cancelTimerIfEntry(baSource, ie->getInterfaceId(), KEY_BU); // 11.06.08 - CB
+
+                if (nba->getLifetime() == 0) // BAck to deregistration BU
+                {
+                    if (baSource == ie->ipv6Data()->getHomeAgentAddress())
+                    {
+                        ipv6nd->sendUnsolicitedNA(ie);
+                    }
+                    nbul->removeBinding(baSource);
+                    // remove all timers related to this BA address
+                    removeTimerEntries(baSource, ctrlInfo->getInterfaceId()); // update 10.10.08 - CB
+                }
+                else
+                {
+                    NemoBindingUpdateList::NemoBindingUpdateListEntry* entry = nbul->lookup(ctrlInfo->getSrcAddr());
+                    ASSERT(entry != NULL);
+
+                    // establish tunnel, but only if we have not already acked the BU before
+                    if (entry->BAck == false && entry->destAddress == ie->ipv6Data()->getHomeAgentAddress()) // BA from HA
+                    {
+                        removeCoAEntries(); // TODO would be better if this is done somewhere else or in a completely different way
+                        interfaceCoAList[ie->getInterfaceId()] = entry->careOfAddress;
+
+                        tunneling->createTunnel(IPv6Tunneling::NORMAL, entry->careOfAddress, entry->destAddress); // update 10.06.08 - CB
+                    }
+                    else if (entry->BAck == false) // BA from CN
+                    {
+                        tunneling->destroyTunnelForExitAndTrigger(entry->homeAddress, baSource);
+                        tunneling->createTunnel(IPv6Tunneling::HA_OPT, entry->careOfAddress, entry->homeAddress, baSource); // update 10.06.08 - CB
+
+                        // fire event to MIH subscribers
+                        nb->fireChangeNotification(NF_MIPv6_RO_COMPLETED, NULL);
+                    }
+
+                    // set BAck flag in BUL
+                    entry->BAck = true;
+
+                    // set mobility state in BUL
+                    entry->state = NemoBindingUpdateList::REGISTERED;
+
+                    int l_ack = nba->getLifetime() * 4; /* 6.1.7 One time unit is 4 seconds. */
+                    int l_update = entry->bindingLifetime;
+                    int l_remain = entry->bindingLifetime - (SIMTIME_DBL(simTime() - entry->sentTime));
+                    int x = l_remain - (l_update - l_ack);
+                    entry->bindingLifetime = x > 0 ? x : 0;
+                    entry->bindingExpiry = simTime() + entry->bindingLifetime;
+
+                    // TODO currently we schedule the expiry message some seconds (PRE_BINDING_EXPIRY)
+                    //         before the actual expiration. Can be improved.
+                    simtime_t scheduledTime = entry->bindingExpiry - PRE_BINDING_EXPIRY;
+                    scheduledTime = scheduledTime > 0 ? scheduledTime : 0;
+
+                    EV << "Scheduling BULEntryExpiryTimer for " << scheduledTime << endl;
+                    createBULEntryExpiryTimer(entry, ie, scheduledTime);
+                }
+            }
+
+            else    // nba status > 128
+            {
+                EV << "Binding was rejected.\n";
+
+                // retransmission is performed anyway as timers are not deleted
+                // TODO store DO_NOT_SEND_BU in BUL
+            }
+        }
+
+        delete ctrlInfo;
+        delete nba;
+}
+
 bool xMIPv6::validateBAck(const BindingAcknowledgement& ba, const IPv6ControlInfo* ctrlInfo)
 {
     /*11.7.3
       Upon receiving a packet carrying a Binding Acknowledgement, a mobile
       node MUST validate the packet according to the following tests:
+
       o  The packet meets the authentication requirements for Binding
          Acknowledgements defined in Section 6.1.8 and Section 5.  That is,
          if the Binding Update was sent to the home agent, underlying IPsec
@@ -1451,12 +1971,28 @@ bool xMIPv6::validateBAck(const BindingAcknowledgement& ba, const IPv6ControlInf
     return true;
 }
 
+bool xMIPv6::validateNBAck(const NemoBindingAcknowledgement& nba, const IPv6ControlInfo* ctrlInfo)
+{
+    IPv6Address cnAddress = ctrlInfo->getSrcAddr();
+
+    // 24.9.07 - CB
+        if (nbul->getSequenceNumber(cnAddress) != nba.getSequenceNumber())
+        {
+            EV << "BA Validation Failed: Sequence number from BA does not match the one from the BUL!!\n";
+            return false;
+        }
+
+        return true;
+}
+
 /**
   * Alain Tigyo, 21.03.2008
   * The following code is used for triggering RO to a CN.
   */
 void xMIPv6::triggerRouteOptimization(const IPv6Address& destAddress, const IPv6Address& HoA, InterfaceEntry* ie)
 {
+    return;
+
     if (bul->getMobilityState(destAddress) == BindingUpdateList::NONE)
         bul->setMobilityState(destAddress, BindingUpdateList::RR);
 
@@ -1710,15 +2246,19 @@ void xMIPv6::sendTestInit(cMessage* msg)
 /*void xMIPv6::resetTestInitIfEntry(const IPv6Address& dest, int interfaceID, int msgType)
 {
     ASSERT(msgType == KEY_HI || msgType == KEY_CI);
+
     Key key(dest, interfaceID, msgType);
     TransmitIfList::iterator pos = transmitIfList.find(key);
+
     if (pos == transmitIfList.end())
     {
         //EV << "+++ No corresponding TimerIfEntry found! +++\n";
         return;
     }
+
     TimerIfEntry* entry = (pos->second);
     ASSERT(entry);
+
     // first we cancel the current retransmission timer
     cancelEvent(entry->timer);
     // then we reset the timeout value to the initial value
@@ -1726,24 +2266,30 @@ void xMIPv6::sendTestInit(cMessage* msg)
     // and then we reschedule again for the time when the token expires
     entry->nextScheduledTime = simTime() + MAX_TOKEN_LIFETIME * TEST_INIT_RETRANS_FACTOR;
     scheduleAt(entry->nextScheduledTime, entry->timer);
+
     EV << "Updated TestTransmitIfEntry and corresponding timer.\n";
+
     // TODO check for token expiry in BUL
 }*/
 
 /*void xMIPv6::resetTestInitIfEntry(const IPv6Address& dest, int msgType)
 {
     ASSERT(msgType == KEY_HI || msgType == KEY_CI);
+
     TransmitIfList::iterator pos;
     for (pos = transmitIfList.begin(); pos != transmitIfList.end(); ++pos)
     {
         if (pos->first.type == msgType && pos->first.dest == dest)
             break;
     }
+
     if (pos == transmitIfList.end())
         return;
+
     // TODO refactor: call resetTestInitIfEntry(const IPv6Address& dest, int interfaceID, int msgType)
     TimerIfEntry* entry = (pos->second);
     ASSERT(entry);
+
     // first we cancel the current retransmission timer
     cancelEvent(entry->timer);
     // then we reset the timeout value to the initial value
@@ -1751,7 +2297,9 @@ void xMIPv6::sendTestInit(cMessage* msg)
     // and then we reschedule again for the time when the token expires
     entry->nextScheduledTime = simTime() + MAX_TOKEN_LIFETIME * TEST_INIT_RETRANS_FACTOR;
     scheduleAt(entry->nextScheduledTime, entry->timer);
+
     EV << "Updated TestTransmitIfEntry and corresponding timer.\n";
+
     // TODO check for token expiry in BUL
 }*/
 
@@ -2295,6 +2843,12 @@ void xMIPv6::createAndSendBEMessage(const IPv6Address& dest, const BEStatus& beS
 bool xMIPv6::cancelTimerIfEntry(const IPv6Address& dest, int interfaceID, int msgType)
 {
     Key key(dest, interfaceID, msgType);
+
+    if(transmitIfList.empty())
+    {
+       return false;
+    }
+
     TransmitIfList::iterator pos = transmitIfList.find(key);
 
     if (pos == transmitIfList.end())
@@ -2449,11 +3003,17 @@ void xMIPv6::removeTimerEntries(const IPv6Address& dest, int interfaceId)
         cancelTimerIfEntry(dest, interfaceId, KEY_BR);
         // BUL expiry
         cancelTimerIfEntry(dest, interfaceId, KEY_BUL_EXP);
-        // BC expiry
-        //cancelTimerIfEntry(dest, interfaceId, KEY_BC_EXP);
         // token expiry
         cancelTimerIfEntry(dest, interfaceId, KEY_HTOKEN_EXP);
         cancelTimerIfEntry(dest, interfaceId, KEY_CTOKEN_EXP);
+    }
+    else if (rt6->isMobileRouter())
+    {
+        // BU
+        cancelTimerIfEntry(dest, interfaceId, KEY_BU);
+        // BUL expiry
+        cancelTimerIfEntry(dest, interfaceId, KEY_BUL_EXP);
+
     }
     else if (rt6->isHomeAgent())
     {
@@ -2662,15 +3222,46 @@ void xMIPv6::createBULEntryExpiryTimer(BindingUpdateList::BindingUpdateListEntry
     // WAS SCHEDULED FOR EXPIRY, NOT 2 SECONDS BEFORE!?!?!?
 }
 
+void xMIPv6::createBULEntryExpiryTimer(NemoBindingUpdateList::NemoBindingUpdateListEntry* entry, InterfaceEntry* ie, simtime_t scheduledTime)
+{
+    cMessage* bulExpiryMsg = new cMessage("BULEntryExpiry", MK_BUL_EXPIRY);
+
+        // we are able to associate the BUL entry later on based on HoA, CoA and destination (=HA address)
+        IPv6Address& HoA = entry->homeAddress;
+        IPv6Address& CoA = entry->careOfAddress;
+        IPv6Address& HA = entry->destAddress;
+
+        Key key(HA, ie->getInterfaceId(), KEY_BUL_EXP);
+        // fetch a valid TimerIfEntry obect
+        BULExpiryIfEntry* bulExpIfEntry = (BULExpiryIfEntry*) getTimerIfEntry(key, EXPIRY_TYPE_BUL);
+
+        bulExpIfEntry->dest = HA;
+        bulExpIfEntry->HoA = HoA;
+        bulExpIfEntry->CoA = CoA;
+        bulExpIfEntry->ifEntry = ie;
+        bulExpIfEntry->timer = bulExpiryMsg;
+
+        bulExpiryMsg->setContextPointer(bulExpIfEntry); // information in the bulExpIfEntry is required for handler when message fires
+
+        /*BULExpiryIfEntry* bulExpIfEntry = createBULEntryExpiryTimer(key, HA, HoA, CoA, ie);*/
+
+        scheduleAt(scheduledTime, bulExpiryMsg);
+        EV << "Scheduled BUL expiry (" << entry->bindingExpiry << "s) for time " << scheduledTime << "s" << endl;
+        // WAS SCHEDULED FOR EXPIRY, NOT 2 SECONDS BEFORE!?!?!?
+}
+
 /*BULExpiryIfEntry* xMIPv6::createBULEntryExpiryTimer(Key& key, IPv6Adress& dest, IPv6Adress& HoA, IPv6Adress& CoA, InterfaceEntry* ie, cMessage* bulExpiryMsg)
 {
     BULExpiryIfEntry* bulExpIfEntry = (BULExpiryIfEntry*) getTimerIfEntry(key, EXPIRY_TYPE_BUL);
+
     bulExpIfEntry->dest = HA;
     bulExpIfEntry->HoA = HoA;
     bulExpIfEntry->CoA = CoA;
     bulExpIfEntry->ifEntry = ie;
     bulExpIfEntry->timer = bulExpiryMsg;
+
     bulExpiryMsg->setContextPointer(bulExpIfEntry); // information in the bulExpIfEntry is required for handler when message fires
+
     return bulExpIfEntry;
 }*/
 

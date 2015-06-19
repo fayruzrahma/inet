@@ -298,7 +298,7 @@ void IPv6::routePacket(IPv6Datagram *datagram, const InterfaceEntry *destIE, boo
          (datagram->getExtensionHeaderArraySize() == 0) && // we do not already have extension headers - FIXME: check for RH2 existence
           (((rt->isMobileNode() || rt->isMobileRouter()) && rt->isHomeAddress( datagram->getSrcAddress())) || // for MNs: only if source address is a HoA // 27.08.07 - CB
              rt->isHomeAgent() || // but always check for tunnel if node is a HA
-             !rt->isMobileNode() // or if it is a correspondent or non-MIP node
+             !(rt->isMobileNode() || rt->isMobileRouter()) // or if it is a correspondent or non-MIP node
           )
         )
     {

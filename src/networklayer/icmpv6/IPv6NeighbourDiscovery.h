@@ -421,4 +421,3 @@ class INET_API IPv6NeighbourDiscovery : public cSimpleModule, public ILifecycle
 };
 
 #endif //IPV6NEIGHBOURDISCOVERY_H
-

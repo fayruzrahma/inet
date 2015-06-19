@@ -83,7 +83,7 @@ void IPv6NeighbourDiscovery::initialize(int stage)
         icmpv6 = ICMPv6Access().get();
 
 #ifdef WITH_xMIPv6
-        if (rt6->isMobileNode())
+        if (rt6->isMobileNode() || rt6->isMobileRouter() || rt6->isHomeAgent())
             mipv6 = xMIPv6Access().get();
         if (rt6->isMobileRouter() || rt6->isHomeAgent())
             pt = PrefixTableAccess().get();
@@ -1374,8 +1374,8 @@ void IPv6NeighbourDiscovery::processRAPacket(IPv6RouterAdvertisement *ra,
             return;
     }
 
-    //ini sementara bisa untuk non-nested nemo... tapi kalo udah nested, ini bisa jadi masalah(???)
-    else if (rt6->isMobileRouter() && !strcmp(ie->getClassName(), "Ieee802Ctrl")) //ie = NULL if interface entry from external wlan card
+//    //ini sementara bisa untuk non-nested nemo... tapi kalo udah nested, ini bisa jadi masalah(???)
+    else if (rt6->isMobileRouter() && !strcmp(ie->getClassName(), "Ieee802Ctrl")) // wireless interface ga boleh terima RA
     {
         EV << "Interface is an advertising interface, dropping RA message.\n";
                     delete ra;
@@ -2877,4 +2877,3 @@ bool IPv6NeighbourDiscovery::isWirelessAccessPoint(cModule* module)
             (module->getSubmodule("wlan", 0) || module->getSubmodule("wlan")));
 }
 #endif /* WITH_xMIPv6 */
-

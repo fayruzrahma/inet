@@ -172,6 +172,8 @@ std::string IPv6InterfaceData::info() const
 #ifdef WITH_xMIPv6
            << ((rt6->isMobileNode() && getAddress(i).isGlobal())
                ? (addresses[i].addrType==HoA ? "HoA" : "CoA") : "")
+           << ((rt6->isMobileRouter() && getAddress(i).isGlobal())
+                   ? (addresses[i].addrType==HoA ? "HoA" : "CoA") : "")
 #endif /* WITH_xMIPv6 */
 
            << " expiryTime: " << (addresses[i].expiryTime==0 ? "inf" : SIMTIME_STR(addresses[i].expiryTime))
@@ -220,6 +222,9 @@ std::string IPv6InterfaceData::info() const
     if ( rt6->isMobileNode() )
         os << "\tHome Network Info: " << " HoA="<< homeInfo.HoA << ", HA=" << homeInfo.homeAgentAddr
            << ", home prefix=" << homeInfo.prefix/*.prefix()*/ << "\n";
+    if ( rt6->isMobileRouter() )
+            os << "\tHome Network Info: " << " HoA="<< homeInfo.HoA << ", HA=" << homeInfo.homeAgentAddr
+               << ", home prefix=" << homeInfo.prefix/*.prefix()*/ << "\n";
 #endif /* WITH_xMIPv6 */
 
     if (rtrVars.advSendAdvertisements)

@@ -74,9 +74,9 @@ packet BindingUpdate extends MobilityHeader
 packet NemoBindingUpdate extends BindingUpdate
 {
         //fayruz 27.01.2015	- RFC 3963 section 4.1
-    bool mobilityOptions; // M-Flag.........?
+    //bool mobilityOptions; // M-Flag.........? implicit mode is used. this option is unnecessary
     bool mobileRouter; // R-Flag
-    IPv6Address prefixAddress;
+//    IPv6Address prefixAddress;
 }
 
 
@@ -125,7 +125,7 @@ packet NemoBindingAcknowledgement extends BindingAcknowledgement
 {
         //fayruz 27.01.2015	- RFC 3963 section 4.2
     bool mobileRouter; // R-Flag
-    IPv6Address prefixAddress;
+    //IPv6Address prefixAddress; info prefiks tidak perlu pada binding
 }
 
 //==================Defining Binding Error Status====================
@@ -199,11 +199,11 @@ packet HomeAddressOption extends IPv6DestinationOptionsHeader
 
 //fayruz 13.03.2015. based on RFC3963 sub 4.3
 //if implicit mode is used, this field is not included in the BU
-packet NemoMobileNetworkPrefixOption
-{
-    short type = 6;
-    short length;
-    short prefixLength;
-    @customize(true);
-    IPv6Address prefixAddress;
-}
+//packet NemoMobileNetworkPrefixOption
+//{
+//    short type = 6;
+//    short length;
+//    short prefixLength;
+//    @customize(true);
+//    IPv6Address prefixAddress;
+//}

@@ -60,7 +60,7 @@ module MobileRouter6 extends StandardHost6
 //        networkLayer.ifOut++ --> iWiredNic.upperLayerIn;
 //        networkLayer.ifIn++ <-- iWiredNic.upperLayerOut;
 
-    submodules:
+    submodules: //double:: di xMIPv6Support juga ada ini!
         prefixTable: PrefixTable {
             @display("p=53,54");
         }

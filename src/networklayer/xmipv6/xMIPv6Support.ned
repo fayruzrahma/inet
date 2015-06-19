@@ -59,9 +59,9 @@ module xMIPv6Support like IxMIPv6Support
         nemoBUList: NemoBindingUpdateList {
             @display("p=209,35;i=old/harddisk");
         }
-        prefixTable: PrefixTable {
-            @display("p=124,161;i=old/harddisk");
-        }
+//        prefixTable: PrefixTable { //double: di MR6 juga udah ada ini...
+//            @display("p=124,161;i=old/harddisk");
+//        }
     connections:
         fromIPv6 --> xMobileIPv6.fromIPv6;
         toIPv6 <-- xMobileIPv6.toIPv6;

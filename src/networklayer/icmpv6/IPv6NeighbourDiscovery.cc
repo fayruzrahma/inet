@@ -1619,7 +1619,7 @@ void IPv6NeighbourDiscovery::processPrefixAckPacket(IPv6PrefixAck *pa, IPv6Contr
 }
 
 void IPv6NeighbourDiscovery::processRAPrefixInfo(IPv6RouterAdvertisement *ra,
-        InterfaceEntry *ie, IPv6Address raSrcAddr)
+        InterfaceEntry *ie, const IPv6Address& raSrcAddr)
 {
     //Continued from section 6.3.4
     /*Prefix Information options that have the "on-link" (L) flag set indicate a

@@ -4,7 +4,6 @@
  * Communication Networks Institute, University of Dortmund, Germany.
  * Christian Bauer
  * Institute of Communications and Navigation, German Aerospace Center (DLR)
-
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -32,7 +31,6 @@
 #include "BindingUpdateList.h"
 #include "IPv6Tunneling.h"
 #include "MobilityHeader.h" // for HAOpt & RH2
-#include "NemoBindingUpdateList.h"
 
 // Foreign declarations:
 class BindingCache;
@@ -42,11 +40,8 @@ class IPv6ControlInfo;
 class IPv6Datagram;
 class IPv6NeighbourDiscovery;
 class IPv6Tunneling;
-class NemoBindingCache;
-class NemoBindingUpdate;
 class RoutingTable6;
 class NotificationBoard;
-class PrefixTable;
 
 // 13.9.07
 // Keys for timer list (=message type)
@@ -84,9 +79,6 @@ class INET_API xMIPv6 : public cSimpleModule
     BindingCache* bc; //31.07.07
     IPv6Tunneling* tunneling; // 21.08.07 - CB
     IPv6NeighbourDiscovery* ipv6nd;
-    NemoBindingUpdateList* nbul;
-    NemoBindingCache* nbc;
-    PrefixTable* pt;
 
     // statistic collection
     cOutVector statVectorBUtoHA, statVectorBUtoCN, statVectorBUtoMN;
@@ -130,7 +122,6 @@ class INET_API xMIPv6 : public cSimpleModule
             dest = _dest; interfaceID = _interfaceID; type = _type;
         }
 
-        //ini apa sih?
         bool operator<(const Key& b) const
         {
             if (type == b.type)
@@ -142,18 +133,6 @@ class INET_API xMIPv6 : public cSimpleModule
 
     typedef std::map<Key,TimerIfEntry*> TransmitIfList;
     TransmitIfList transmitIfList;
-
-    //fayruz add this 2 operator functions
-    friend std::ostream& operator<<(std::ostream& os, const Key& key)
-    {
-        os << "  dest=" << key.dest << "  intID=" << key.interfaceID << "  type=" << key.type; // no endl!
-        return os;
-    }
-    friend std::ostream& operator<<(std::ostream& os, const TimerIfEntry& tie)
-    {
-        os << "  dest=" << tie.dest << "  ackTimeout=" << tie.ackTimeout << "  nextScheduledTime=" << tie.nextScheduledTime << "  msg=" << tie.timer->getFullName(); // no endl!
-        return os;
-    }
 
     /** holds the tuples of currently available {InterfaceID, CoA} pairs */
     typedef std::map<int,IPv6Address> InterfaceCoAList;
@@ -259,9 +238,6 @@ class INET_API xMIPv6 : public cSimpleModule
     void updateBUL(BindingUpdate* bu, const IPv6Address& dest, const IPv6Address& CoA,
             InterfaceEntry* ie, const simtime_t sendTime); //04.06.07
 
-    void updateNBUL(NemoBindingUpdate* nbu, const IPv6Address& dest, const IPv6Address& CoA,
-                InterfaceEntry* ie, const simtime_t sendTime);
-
     /**
      * This method takes an interface and a destination address and returns the appropriate IfEntry for an BU.
      * Is supposed to be used until the valid BA is received for the respective BU.
@@ -281,19 +257,15 @@ class INET_API xMIPv6 : public cSimpleModule
      */
     void processBUMessage(BindingUpdate * bu, IPv6ControlInfo * ctrlInfo);
 
-    void processNBUMessage(NemoBindingUpdate * nbu, IPv6ControlInfo * ctrlInfo);
-
     /**
      * Validate a BU - only applicable to HAs and CNs
      */
     bool validateBUMessage(BindingUpdate *bu, IPv6ControlInfo *ctrlInfo);
-    bool validateNBUMessage(NemoBindingUpdate *nbu, IPv6ControlInfo *ctrlInfo);
 
     /**
      * Similiar to validateBUMessage(). However, this one is used only by HA to verify deregistration BU.
      */
     bool validateBUderegisterMessage(BindingUpdate *bu, IPv6ControlInfo *ctrlInfo); // 4.9.07 - CB
-    bool validateNBUderegisterMessage(NemoBindingUpdate *nbu, IPv6ControlInfo *ctrlInfo);
 
     /**
      * Constructs and send a BA to the IPv6 module. Only applicable to HAs and CNs.
@@ -302,20 +274,15 @@ class INET_API xMIPv6 : public cSimpleModule
             const IPv6Address& dest, IPv6ControlInfo* ctrlInfo, const BAStatus& baStatus, const uint baSeq,
             const int bindingAuthorizationData, const uint lifeTime, simtime_t sendTime = 0); // 14.9.07 - CB
 
-    void createAndSendNBAMessage(const IPv6Address& src, const IPv6Address& dest, IPv6ControlInfo* ctrlInfo, const BAStatus& baStatus, const uint baSeq, const uint lifeTime, const bool mR, simtime_t sendTime = 0);
-
     /**
      * Processes the received BA and creates tunnels or mobility header paths if appropriate.
      */
     void processBAMessage(BindingAcknowledgement * ba, IPv6ControlInfo * ctrlInfo);
 
-    void processNBAMessage(NemoBindingAcknowledgement * nba, IPv6ControlInfo * ctrlInfo);
-
     /**
      * Validates a Binding Acknowledgement for a mobile node.
      */
     bool validateBAck(const BindingAcknowledgement& ba, const IPv6ControlInfo* ctrlInfo); // update 12.9.07
-    bool validateNBAck(const NemoBindingAcknowledgement& nba, const IPv6ControlInfo* ctrlInfo);
 
     /**
      * Creates and sends Binding Error message.
@@ -547,8 +514,6 @@ class INET_API xMIPv6 : public cSimpleModule
      */
     void createBULEntryExpiryTimer(BindingUpdateList::BindingUpdateListEntry* entry,
             InterfaceEntry* ie, simtime_t scheduledTime);
-    void createBULEntryExpiryTimer(NemoBindingUpdateList::NemoBindingUpdateListEntry* entry,
-            InterfaceEntry* ie, simtime_t scheduledTime);
 
     /**
      * Handles the situation of a BUL expiry. Either a BU is sent in advance for renewal or the BUL entry is removed.
@@ -599,4 +564,3 @@ class INET_API xMIPv6 : public cSimpleModule
 };
 
 #endif //__XMIPV6_H__
-

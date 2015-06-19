@@ -66,7 +66,7 @@ class INET_API NemoBindingUpdateList : public cSimpleModule
         bool BAck; //not part of RFC. Indicates whether the correpsonding BU has received a valid BAck or not. True if Ack'ed. By Default it is FALSE.
 
         // fayruz 04.02.2015 . adding new field on data structure - RFC 3963 section 5.1
-        IPv6Address prefixInfo; //implicit mode? should be configured manually?
+//        IPv6Address prefixInfo; //implicit mode? should be configured manually?
         bool mobileRouter;
 
         // this state information is used for CN bindings
@@ -78,7 +78,7 @@ class INET_API NemoBindingUpdateList : public cSimpleModule
         virtual ~NemoBindingUpdateListEntry() {};
     };
 
-    friend std::ostream& operator<<(std::ostream& os, const NemoBindingUpdateListEntry& bul);
+    friend std::ostream& operator<<(std::ostream& os, const NemoBindingUpdateListEntry& nbul);
     typedef std::map<IPv6Address,NemoBindingUpdateListEntry> NemoBindingUpdateList6;
     NemoBindingUpdateList6 nemoBindingUpdateList;
 
@@ -99,7 +99,7 @@ class INET_API NemoBindingUpdateList : public cSimpleModule
      * Sets entry in the Binding Update List with provided values. If entry does not yet exist, a new one is created.
      */
     virtual void addOrUpdateBUL(const IPv6Address& dest, const IPv6Address& hoa,
-           const IPv6Address& coa, const uint lifetime, const uint seq, const simtime_t buSentTime, const bool mR, const IPv6Address& prefix, int intID); //,const simtime_t& nextBUSentTime );
+           const IPv6Address& coa, const uint lifetime, const uint seq, const simtime_t buSentTime, const bool mR, int intID); //,const simtime_t& nextBUSentTime );
 
     /**
      * Creates a new entry in the BUL for the provided address.

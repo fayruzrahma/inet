@@ -87,7 +87,9 @@ void NemoBindingUpdateList::handleMessage(cMessage *msg)
     opp_error("This module doesn't process messages");
 }
 
-void NemoBindingUpdateList::addOrUpdateBUL(const IPv6Address& dest, const IPv6Address& hoa, const IPv6Address& coa, const uint lifetime, const uint seq, const simtime_t buSentTime, const bool mR, const IPv6Address& prefix, int intID)//,const simtime_t& nextBUSentTime)
+void NemoBindingUpdateList::addOrUpdateBUL(const IPv6Address& dest, const IPv6Address& hoa,
+        const IPv6Address& coa, const uint lifetime, const uint seq, const simtime_t buSentTime,
+        const bool mR, int intID)//,const simtime_t& nextBUSentTime)
 {
     // modified structure - CB
 
@@ -115,7 +117,7 @@ void NemoBindingUpdateList::addOrUpdateBUL(const IPv6Address& dest, const IPv6Ad
 
     //fayruz 27.02.2015
     entry->mobileRouter = mR; // Mobile Router Flag
-    entry->prefixInfo = prefix; // Prefix Information
+//    entry->prefixInfo = prefix; // Prefix Information
 
     entry->interfaceID = intID; // for forwarding purpose - fayruz
 }

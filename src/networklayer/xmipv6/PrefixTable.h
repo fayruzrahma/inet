@@ -77,6 +77,11 @@ public:
      * Returns the last subprefix on the table
      */
     IPv6Address getLastSubPrefix() const;
+
+    /*
+     * Returns the root-MR of a prefix
+     */
+    IPv6Address getHoARootMR(const IPv6Address& prefix) const;
 };
 
 /**

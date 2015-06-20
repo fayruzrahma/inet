@@ -83,6 +83,11 @@ void IPv6Tunneling::initialize(int stage)
         if (!isOperational)
             throw cRuntimeError("This module doesn't support starting in node DOWN state");
     }
+    else if (stage == 3)
+    {
+        if (rt->isHomeAgent() || rt->isMobileRouter())
+            pt = PrefixTableAccess().get();
+    }
 }
 
 void IPv6Tunneling::handleMessage(cMessage* msg)
@@ -399,6 +404,21 @@ void IPv6Tunneling::encapsulateDatagram(IPv6Datagram* dgram)
         // look up all tunnels for dgram's destination
         vIfIndex = getVIfIndexForDest(dgram->getDestAddress());
         //EV << "looked up again!" << endl;
+    }
+
+    if (vIfIndex == -1)
+    {
+        // mungkin prefiksnya?
+        IPv6Address destPrefix = dgram->getDestAddress().getPrefix(52); // prefix HA = 48. di-sub sekali, jadi 52
+        IPv6Address HoAMR(0,0,0,0);
+        if (rt->isHomeAgent())
+        {
+            HoAMR = pt->getHoARootMR(destPrefix); // unspecified if ga ada di prefix table
+        }
+        if (!(HoAMR.isUnspecified()))
+        {
+            vIfIndex = getVIfIndexForDest(HoAMR);
+        }
     }
 
     if (vIfIndex == -1)

@@ -106,3 +106,23 @@ IPv6Address PrefixTable::getLastSubPrefix() const
 
     return lastSubPrefix;
 }
+
+IPv6Address PrefixTable::getHoARootMR(const IPv6Address& prefix) const
+{
+    IPv6Address HoARootMR(0,0,0,0);
+
+    PrefixTable6::const_iterator pos;
+    if (!(prefixTable.empty()))
+    {
+        for (pos = prefixTable.begin(); pos!=prefixTable.end(); pos++)
+        {
+            if (prefix == pos->second.mobileNetworkPrefix)
+            {
+                HoARootMR = pos->first;
+                return HoARootMR;
+            }
+        }
+    }
+
+    return HoARootMR; //unspec
+}

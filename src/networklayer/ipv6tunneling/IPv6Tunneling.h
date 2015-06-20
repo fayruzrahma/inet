@@ -37,6 +37,8 @@ class IInterfaceTable;
 class IPv6Datagram;
 class RoutingTable6;
 
+class PrefixTable;
+
 
 /**
  * Management of IP tunnels.
@@ -58,6 +60,8 @@ class INET_API IPv6Tunneling : public cSimpleModule, public ILifecycle
     protected:
         IInterfaceTable* ift;
         RoutingTable6* rt;
+
+        PrefixTable *pt;
 
         struct Tunnel
         {
@@ -137,7 +141,7 @@ class INET_API IPv6Tunneling : public cSimpleModule, public ILifecycle
          * Initialize tunnel manager.
          */
         virtual void initialize(int stage);
-        virtual int numInitStages() const { return 2; }
+        virtual int numInitStages() const { return 4; }
 
         /**
          * Receive messages from IPv6 module and encapsulate/decapsulate them.

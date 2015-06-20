@@ -1598,7 +1598,7 @@ void IPv6NeighbourDiscovery::processRAForRouterUpdates(IPv6RouterAdvertisement *
 IPv6PrefixAck *IPv6NeighbourDiscovery::createAndSendPrefixAck(IPv6NDPrefixInformation& prefixInfo, const IPv6Address& destAddr, InterfaceEntry *ie)
 {
     IPv6PrefixAck *pa = new IPv6PrefixAck("PApacket");
-    IPv6Address myIPv6Address = ie->ipv6Data()->getPreferredAddress();
+    IPv6Address myIPv6Address = ie->ipv6Data()->getGlobalAddress(IPv6InterfaceData::HoA);
 
     pa->setPrefix(prefixInfo.getPrefix());
     pa->setPrefixLength(prefixInfo.getPrefixLength());

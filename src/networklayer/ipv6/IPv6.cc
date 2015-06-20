@@ -82,6 +82,11 @@ void IPv6::initialize(int stage)
         if (!isOperational)
             throw cRuntimeError("This module doesn't support starting in node DOWN state");
     }
+    else if (stage == 3)
+    {
+        if (rt->isHomeAgent() || rt->isMobileRouter())
+            pt = PrefixTableAccess().get();
+    }
 }
 
 void IPv6::updateDisplayString()
@@ -292,6 +297,16 @@ void IPv6::routePacket(IPv6Datagram *datagram, const InterfaceEntry *destIE, boo
     IPv6Address nextHop;
 
 #ifdef WITH_xMIPv6
+    //apakah prefix pengirim ada di prefix table?
+    IPv6Address destPrefix = destAddress.getPrefix(52); // prefix HA = 48. di-sub sekali, jadi 52
+    IPv6Address HoAMR(0,0,0,0);
+    if (rt->isHomeAgent())
+    {
+        HoAMR = pt->getHoARootMR(destPrefix); // unspecified if ga ada di prefix table
+        EV << "HoA Root MR is " << HoAMR << endl;
+    }
+
+
     // tunneling support - CB
     // check if destination is covered by tunnel lists
     if ((datagram->getTransportProtocol() != IP_PROT_IPv6) && // if datagram was already tunneled, don't tunnel again
@@ -303,13 +318,22 @@ void IPv6::routePacket(IPv6Datagram *datagram, const InterfaceEntry *destIE, boo
         )
     {
         if (datagram->getTransportProtocol() == IP_PROT_IPv6EXT_MOB)
+        {
             // in case of mobility header we can only search for "real" tunnels
             // as T2RH or HoA Opt. are not allowed with these messages
             interfaceId = tunneling->getVIfIndexForDest(destAddress, IPv6Tunneling::NORMAL); // 10.06.08 - CB
             //getVIfIndexForDestForXSplitTunnel(destAddress);
+
+            if ((interfaceId == -1) && !(HoAMR==IPv6Address::UNSPECIFIED_ADDRESS)) // ada prefiks dalam tabel, alamat tujuan ganti root MR
+                interfaceId = tunneling->getVIfIndexForDest(HoAMR, IPv6Tunneling::NORMAL);
+        }
         else
+        {
             // otherwise we can search for everything
             interfaceId = tunneling->getVIfIndexForDest(destAddress);
+            if ((interfaceId == -1) && !(HoAMR==IPv6Address::UNSPECIFIED_ADDRESS))
+                interfaceId = tunneling->getVIfIndexForDest(HoAMR);
+        }
     }
 #else
     // FIXME this is not the same as the code above (when WITH_xMIPv6 is defined),
@@ -325,22 +349,6 @@ void IPv6::routePacket(IPv6Datagram *datagram, const InterfaceEntry *destIE, boo
         return;
     }
 
-    if(rt->isMobileRouter()) // MR langsung forward ke parent aja (harusnya, kalo paket dari anaknya). di sini baru ke HA doang. kalo ke MR parent-> cek RA packet?
-    {
-        InterfaceEntry *ientry = ift->getInterfaceByName("wlan0");
-        IPv6Address HAaddr;
-        if (datagram->getSrcAddress() == HAaddr) // paket diforward ke HA jika di home network aja
-        {
-            interfaceId = ientry->getInterfaceId();
-            nextHop = HAaddr;
-        }
-    }
-
-    if (rt->isHomeAgent())
-    {
-
-    }
-
     if (interfaceId == -1)
         if ( !determineOutputInterface(destAddress, nextHop, interfaceId, datagram, fromHL) )
             // no interface found; sent to ND or to ICMP for error processing
@@ -354,7 +362,7 @@ void IPv6::routePacket(IPv6Datagram *datagram, const InterfaceEntry *destIE, boo
     ASSERT(!nextHop.isUnspecified());
 
 #ifdef WITH_xMIPv6
-     if (rt->isMobileNode())
+     if (rt->isMobileNode() || rt->isMobileRouter())
      {
           // if the source address is the HoA and we have a CoA then drop the packet
           // (address is topologically incorrect!)
@@ -833,23 +841,6 @@ bool IPv6::determineOutputInterface(const IPv6Address& destAddress, IPv6Address&
 
         if (!route)
         {
-//            if(rt->isMobileRouter()) // terjadi kebodohan di sini
-//                // TODO harusnya pakai interface entry, bukan bul!
-//            {
-//                // forward packet to its Home Agent - really? fayruz
-//                NemoBindingUpdateList::NemoBindingUpdateListEntry* nbulEntry = nbul->fetch(destAddress);
-//                ASSERT(nbulEntry != NULL);
-//                nextHop = nbulEntry->homeAddress;
-//                interfaceId = nbulEntry->interfaceID;
-//
-//                InterfaceEntry ientry = ift->getInterfaceByName("wlan0");
-//                nextHop = ientry->
-//
-//                // ya pasti gagal lah! kan belum punya apdet apa apa, binding update list masih kosong!
-//            }
-//
-//            else
-//            {
             if (rt->isRouter())
             {
                 EV << "unroutable, sending ICMPv6_DESTINATION_UNREACHABLE\n";
@@ -863,12 +854,6 @@ bool IPv6::determineOutputInterface(const IPv6Address& destAddress, IPv6Address&
                  send(datagram, "ndOut");
               }
               return false;
-        }
-
-        //mungkin ada di prefix table
-        if (rt->isHomeAgent() || rt->isMobileRouter())
-        {
-// tapi isi prefix table nya juga belum bener -___-
         }
 
         interfaceId = route->getInterfaceId();

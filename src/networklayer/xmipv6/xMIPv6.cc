@@ -241,31 +241,31 @@ void xMIPv6::processMobilityMessage(MobilityHeader* mipv6Msg, IPv6ControlInfo* c
 {
     EV << "Processing of MIPv6 related mobility message" << endl;
 
-    if (dynamic_cast<BindingUpdate*>(mipv6Msg))
+    if (dynamic_cast<NemoBindingUpdate*>(mipv6Msg))
     {
-        EV << "Message recognized as BINDING UPDATE (BU)" << endl;
+        EV << "Message recognized as NEMO BINDING UPDATE (BU)" << endl;
         //EV << "\n<<<<<<<<Giving Control to processBUMessage()>>>>>>>\n";
+        NemoBindingUpdate *nbu = (NemoBindingUpdate*)mipv6Msg;
+        processNBUMessage(nbu, ctrlInfo);
+    }
+    else if (dynamic_cast<BindingUpdate*>(mipv6Msg))
+    {
+        EV << "Message recognized as BINDING UPDATE (NBU)" << endl;
         BindingUpdate *bu = (BindingUpdate*)mipv6Msg;
         processBUMessage(bu, ctrlInfo);
     }
-    else if (dynamic_cast<NemoBindingUpdate*>(mipv6Msg))
+    else if (dynamic_cast<NemoBindingAcknowledgement*>(mipv6Msg))
     {
-        EV << "Message recognized as NEMO BINDING UPDATE (BU)" << endl;
-        NemoBindingUpdate *nbu = (NemoBindingUpdate*)mipv6Msg;
-        processNBUMessage(nbu, ctrlInfo);
+        EV << "Message recognized as NEMO BINDING ACKNOWLEDGEMENT (BA)" << endl;
+        //EV << "\n<<<<<<<<Giving Control to processBAMessage()>>>>>>>\n";
+        NemoBindingAcknowledgement *nba = (NemoBindingAcknowledgement*)mipv6Msg;
+        processNBAMessage(nba, ctrlInfo);
     }
     else if (dynamic_cast<BindingAcknowledgement*>(mipv6Msg))
     {
         EV << "Message recognized as BINDING ACKNOWLEDGEMENT (BA)" << endl;
-        //EV << "\n<<<<<<<<Giving Control to processBAMessage()>>>>>>>\n";
         BindingAcknowledgement *ba = (BindingAcknowledgement*)mipv6Msg;
         processBAMessage(ba, ctrlInfo);
-    }
-    else if (dynamic_cast<BindingAcknowledgement*>(mipv6Msg))
-    {
-        EV << "Message recognized as NEMO BINDING ACKNOWLEDGEMENT (BA)" << endl;
-        NemoBindingAcknowledgement *nba = (NemoBindingAcknowledgement*)mipv6Msg;
-        processNBAMessage(nba, ctrlInfo);
      }
     // 28.08.07 - CB
     else if (dynamic_cast<HomeTestInit*>(mipv6Msg))
@@ -1326,10 +1326,10 @@ void xMIPv6::processNBUMessage(NemoBindingUpdate* nbu, IPv6ControlInfo* ctrlInfo
                     uint lifeTime = nbc->getLifetime(HoA);
 
                     simtime_t sendTime;
-                    if (rt6->isHomeAgent())
-                        // HA has to do DAD in case this is a new binding for this HoA
-                        sendTime = existingBinding ? 0 : 1;
-                    else
+//                    if (rt6->isHomeAgent())
+//                        // HA has to do DAD in case this is a new binding for this HoA
+//                        sendTime = existingBinding ? 0 : 1; //eug engga nemu ttg ini di RFC NEMO. coba kalo dikomen gmn
+//                    else
                         sendTime = 0;
 
                     createAndSendNBAMessage(destAddress, CoA, ctrlInfo, status, baSeqNumber,
@@ -1623,12 +1623,12 @@ void xMIPv6::createAndSendBAMessage(const IPv6Address& src, const IPv6Address& d
 void xMIPv6::createAndSendNBAMessage(const IPv6Address& src, const IPv6Address& dest,
         IPv6ControlInfo* ctrlInfo, const BAStatus& baStatus, const uint baSeq, const uint lifeTime, const bool mR, const simtime_t sendTime)
 {
-    EV << "Entered createAndSendBAMessage() method" << endl;
+    EV << "Entered createAndSendNBAMessage() method" << endl;
 
         InterfaceEntry *ie = ift -> getInterfaceById(ctrlInfo -> getInterfaceId()); // To find the interface on which the BU was received
 
         NemoBindingAcknowledgement *nba = new NemoBindingAcknowledgement("NEMO Binding Acknowledgement");
-        nba -> setMobilityHeaderType(BINDING_ACKNOWLEDGEMENT);
+        nba -> setMobilityHeaderType(NEMO_BINDING_ACKNOWLEDGEMENT);
         nba -> setStatus(baStatus);
         nba -> setSequenceNumber(baSeq); //this sequence number will correspond to the ACKed BU
         nba -> setMobileRouter(mR);
@@ -1888,14 +1888,6 @@ void xMIPv6::processNBAMessage(NemoBindingAcknowledgement* nba, IPv6ControlInfo*
                         interfaceCoAList[ie->getInterfaceId()] = entry->careOfAddress;
 
                         tunneling->createTunnel(IPv6Tunneling::NORMAL, entry->careOfAddress, entry->destAddress); // update 10.06.08 - CB
-                    }
-                    else if (entry->BAck == false) // BA from CN
-                    {
-                        tunneling->destroyTunnelForExitAndTrigger(entry->homeAddress, baSource);
-                        tunneling->createTunnel(IPv6Tunneling::HA_OPT, entry->careOfAddress, entry->homeAddress, baSource); // update 10.06.08 - CB
-
-                        // fire event to MIH subscribers
-                        nb->fireChangeNotification(NF_MIPv6_RO_COMPLETED, NULL);
                     }
 
                     // set BAck flag in BUL

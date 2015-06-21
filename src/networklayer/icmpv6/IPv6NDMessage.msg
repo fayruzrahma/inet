@@ -157,8 +157,13 @@ packet IPv6Redirect extends IPv6NDMessage
         //Redirected Header Encapsulated Msg
 }
 
-packet IPv6PrefixAck extends IPv6NDMessage
+packet IPv6PrefixSolicitation extends IPv6NDMessage
 {
     IPv6Address prefix;
     int prefixLength;
+}
+
+packet IPv6PrefixAck extends IPv6RouterAdvertisement
+{
+    bool isAcked;
 }

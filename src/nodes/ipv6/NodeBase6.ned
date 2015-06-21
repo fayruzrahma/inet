@@ -59,7 +59,8 @@ module NodeBase6
         }
 
         // optional mobility module. Required only if wireless cards are present
-        mobility: <mobilityType> like IMobility if mobilityType != "" && numRadios > 0 {
+        // if wlan not present. it's ok lah
+        mobility: <mobilityType> like IMobility if mobilityType != "StationaryMobility" {
             parameters:
                 @display("p=53,111");
         }

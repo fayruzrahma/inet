@@ -103,7 +103,7 @@ void IPv6NeighbourDiscovery::initialize(int stage)
         }*/
 #endif /* WITH_xMIPv6 */
         // xxx: Home Agent & Mobile Router tidak kirim RA secara periodis. agar prefix table bisa lebih rapih(?)
-        if(!(rt6->isMobileRouter() || rt6->isHomeAgent()))
+        if(!(rt6->isMobileRouter()))
         {
             for (int i = 0; i < ift->getNumInterfaces(); i++)
             {
@@ -983,7 +983,8 @@ void IPv6NeighbourDiscovery::makeTentativeAddressPermanent(const IPv6Address& te
     //TODO: Placing these operations here means fast router solicitation is
     //not adopted. Will relocate.
     // Only host will send RS and MR via wlan0
-    if (ie->ipv6Data()->getAdvSendAdvertisements() == false || (rt6->isMobileRouter() && strcmp(ie->getFullName(),"eth1")==0)) //yg terhubung dgn wireless card adalah eth1
+//    if (ie->ipv6Data()->getAdvSendAdvertisements() == false || (rt6->isMobileRouter() && strcmp(ie->getFullName(),"eth1")==0)) //yg terhubung dgn wireless card adalah eth1
+    if (ie->ipv6Data()->getAdvSendAdvertisements() == false || rt6->isMobileRouter() ) // ini untuk single nemo. ga bisa utk nested
     {
         EV << "creating router discovery message timer\n";
         cMessage *rtrDisMsg = new cMessage("initiateRTRDIS", MK_INITIATE_RTRDIS);
@@ -1343,7 +1344,7 @@ IPv6RouterAdvertisement *IPv6NeighbourDiscovery::createAndSendRAPacket(
             //- In the Preferred Lifetime field: the entry's AdvPreferredLifetime.
             prefixInfo.setPreferredLifetime(SIMTIME_DBL(advPrefix.advPreferredLifetime));
 
-            if (((rt6->isHomeAgent() || rt6->isMobileRouter())) && isSenderARouter) //&& advPrefix.advRtrAddr == true)
+            if ( rt6->isMobileRouter() && isSenderARouter) //&& advPrefix.advRtrAddr == true)
                 //xxx::cara bodoh dulu, semua interface dikasih subprefix --> ngefek di LFN --> solusi: RS kasih flag itu router ato host
             {
                 prefixInfo = rt6->createSubPrefix(prefixInfo);
@@ -1375,7 +1376,7 @@ void IPv6NeighbourDiscovery::processRAPacket(IPv6RouterAdvertisement *ra,
     }
 
 //    //ini sementara bisa untuk non-nested nemo... tapi kalo udah nested, ini bisa jadi masalah(???)
-    else if (rt6->isMobileRouter() && !strcmp(ie->getClassName(), "Ieee802Ctrl")) // wireless interface ga boleh terima RA
+    else if (rt6->isMobileRouter() && !strcmp(ie->getClassName(), "Ieee802Ctrl")) // selain wlan, ga boleh terima RA
     {
         EV << "Interface is an advertising interface, dropping RA message.\n";
                     delete ra;
@@ -1403,7 +1404,61 @@ void IPv6NeighbourDiscovery::processRAPacket(IPv6RouterAdvertisement *ra,
         cancelRouterDiscovery(ie); //Cancel router discovery if it is in progress.
         EV << "Interface is a host or MR, processing RA.\n";
 
-        processRAForRouterUpdates(ra, raCtrlInfo); //See RFC2461: Section 6.3.4
+        if (rt6->isMobileRouter())
+        {
+            InterfaceEntry *ie = ift->getInterfaceById(raCtrlInfo->getInterfaceId());
+
+            for (int i = 0; i < (int)ra->getPrefixInformationArraySize(); i++)
+            {
+                prefixInfo = ra->getPrefixInformation(i);
+                if (!prefixInfo.getOnlinkFlag()) break; //skip to next prefix option
+
+                IPv6Address prefix = prefixInfo.getPrefix();
+                if (!rt6->isPrefixPresent(prefix))
+                {
+                    bool returnedHome;
+
+                    if ( (rt6->isMobileNode() || rt6->isMobileRouter()) && ie->ipv6Data()->getAddressType(i) == IPv6InterfaceData::HoA && ie->ipv6Data()->getNumAddresses() > 2)
+                        returnedHome = true;
+                    if (!returnedHome)
+                    {
+                        IPv6Address destAddr = raCtrlInfo->getSrcAddr();
+                        createAndSendPrefixSolicitation(prefixInfo, destAddr, ie);
+                    }
+                }
+            }
+        }
+
+        processRAPacketPart2(ra, raCtrlInfo);
+    }
+}
+
+void IPv6NeighbourDiscovery::processRAPacketPart2(IPv6RouterAdvertisement *ra,
+        IPv6ControlInfo *raCtrlInfo)
+{
+
+    processRAForRouterUpdates(ra, raCtrlInfo); //See RFC2461: Section 6.3.4
+
+// ra CtrlInfo terbukti ngga null
+    InterfaceEntry *ie = ift->getInterfaceById(raCtrlInfo->getInterfaceId());
+    ASSERT(ie!=NULL); // pada MR, ie dianggap null. raCtrlInfo->getInterfaceId returns -1. error.
+
+    if (!rt6->isMobileRouter() && ie->ipv6Data()->getAdvSendAdvertisements() )
+    {   // interface wlan0 of Mobile Router can process RA message
+            EV << "Interface is an advertising interface, dropping RA message.\n";
+            delete ra;
+            return;
+    }
+
+//    //ini sementara bisa untuk non-nested nemo... tapi kalo udah nested, ini bisa jadi masalah(???)
+    else if (rt6->isMobileRouter() && !strcmp(ie->getClassName(), "Ieee802Ctrl")) // selain wlan, ga boleh terima RA
+    {
+        EV << "Interface is an advertising interface, dropping RA message.\n";
+                    delete ra;
+                    return;
+    }
+    else
+    {
 
         //Possible options
 //        MACAddress macAddress = ra->getSourceLinkLayerAddress();
@@ -1437,19 +1492,7 @@ void IPv6NeighbourDiscovery::processRAPacket(IPv6RouterAdvertisement *ra,
             }
 #endif /* WITH_xMIPv6 */
         }
-        // xxx: perlukah?
-//        if (rt6->isMobileRouter()) //agar MR kirim RA ke anak2nya setelah dia dapet prefix
-//        {
-//            for (int i = 0; i < ift->getNumInterfaces(); i++)
-//            {
-//                InterfaceEntry *ie = ift->getInterface(i);
-//
-//                if (ie->ipv6Data()->getAdvSendAdvertisements() && !(ie->isLoopback()))
-//                {
-//                    createRATimer(ie);
-//                }
-//            }
-//        }
+
     }
     delete raCtrlInfo;
     delete ra;
@@ -1586,13 +1629,17 @@ void IPv6NeighbourDiscovery::processRAForRouterUpdates(IPv6RouterAdvertisement *
     type specific document (e.g., [IPv6-ETHER]).*/
     //TODO: not done yet
 
-    if(rt6->isMobileRouter() || rt6->isHomeAgent())
-        pt->addOrUpdatePT(raSrcAddr, ra->getPrefixInformation(0).getPrefix());
-
-    if(rt6->isMobileRouter())
-        createAndSendPrefixAck(ra->getPrefixInformation(0), raSrcAddr, ie);
-
     processRAPrefixInfo(ra, ie, raSrcAddr);
+}
+
+IPv6PrefixAck *IPv6NeighbourDiscovery::createAndSendPrefixSolicitation(IPv6NDPrefixInformation& prefixInfo, const IPv6Address& destAddr, InterfaceEntry *ie)
+{
+    IPv6PrefixSolicitation *ps = new IPv6PrefixSolicitation("PrefixSolicit");
+    IPv6Address myIPv6Address = ie->ipv6Data()->getGlobalAddress(IPv6InterfaceData::HoA);
+
+    pa->setPrefix(prefixInfo.getPrefix());
+    pa->setPrefixLength(prefixInfo.getPrefixLength());
+    sendPacketToIPv6Module(pa, destAddr, myIPv6Address, ie->getInterfaceId());
 }
 
 IPv6PrefixAck *IPv6NeighbourDiscovery::createAndSendPrefixAck(IPv6NDPrefixInformation& prefixInfo, const IPv6Address& destAddr, InterfaceEntry *ie)
@@ -1665,6 +1712,13 @@ void IPv6NeighbourDiscovery::processRAPrefixInfo(IPv6RouterAdvertisement *ra,
             //and the Prefix Information option's Valid Lifetime field is non-zero,
             if (validLifetime != 0)
             {
+
+                if(rt6->isMobileRouter() || rt6->isHomeAgent())
+                    pt->addOrUpdatePT(raSrcAddr, ra->getPrefixInformation(0).getPrefix());
+
+                if(rt6->isMobileRouter())
+                    createAndSendPrefixAck(ra->getPrefixInformation(0), raSrcAddr, ie);
+
                 /*create a new entry for the prefix and initialize its invalidation
                 timer to the Valid Lifetime value in the Prefix Information option.*/
                 rt6->addOrUpdateOnLinkPrefix(prefix, prefixLength, ie->getInterfaceId(),
@@ -2715,7 +2769,7 @@ void IPv6NeighbourDiscovery::processRAPrefixInfoForAddrAutoConf(
             // returned home
             // TODO the MN can have several global scope addresses configured from
             // different prefixes advertised via a RA -> not supported with this code
-            if ( rt6->isMobileNode() && ie->ipv6Data()->getAddressType(i) == IPv6InterfaceData::HoA && ie->ipv6Data()->getNumAddresses() > 2)
+            if ( (rt6->isMobileNode() || rt6->isMobileRouter()) && ie->ipv6Data()->getAddressType(i) == IPv6InterfaceData::HoA && ie->ipv6Data()->getNumAddresses() > 2)
                 returnedHome = true;
             else
             {

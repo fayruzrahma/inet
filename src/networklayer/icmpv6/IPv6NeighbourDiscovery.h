@@ -303,6 +303,7 @@ class INET_API IPv6NeighbourDiscovery : public cSimpleModule, public ILifecycle
         virtual IPv6RouterAdvertisement *createAndSendRAPacket(const IPv6Address& destAddr,
             InterfaceEntry *ie, bool isSenderARouter);
         virtual void processRAPacket(IPv6RouterAdvertisement *ra, IPv6ControlInfo *raCtrlInfo);
+        virtual void processRAPacketPart2(IPv6RouterAdvertisement *ra, IPv6ControlInfo *raCtrlInfo);
         virtual void processRAForRouterUpdates(IPv6RouterAdvertisement *ra,
             IPv6ControlInfo *raCtrlInfo);
         //RFC 2461: Section 6.3.4
@@ -312,6 +313,12 @@ class INET_API IPv6NeighbourDiscovery : public cSimpleModule, public ILifecycle
         to both an "on-link" and an "addrconf" function. Each function can then
         operate independently on the prefixes that have the appropriate flag set.*/
         virtual void processRAPrefixInfo(IPv6RouterAdvertisement *ra, InterfaceEntry *ie, const IPv6Address& raSrcAddr);
+
+        virtual IPv6PrefixSolicitation *createAndSendPrefixSolicitation(IPv6NDPrefixInformation& prefixInfo, const IPv6Address& destAddr, InterfaceEntry *ie);
+        virtual void processPrefixSolicitation(IPv6PrefixSolicitation *ps, IPv6ControlInfo *psCtrlInfo);
+
+        virtual IPv6PrefixAdvertisement *createAndSendPrefixAdv(IPv6NDPrefixInformation& prefixInfo, const IPv6Address& destAddr, InterfaceEntry *ie);
+        virtual void processPrefixAdv(IPv6PrefixAdvertisement *pAdv, IPv6ControlInfo *pAdvCtrlInfo);
 
         virtual IPv6PrefixAck *createAndSendPrefixAck(IPv6NDPrefixInformation& prefixInfo, const IPv6Address& destAddr, InterfaceEntry *ie);
         virtual void processPrefixAckPacket(IPv6PrefixAck *pa, IPv6ControlInfo *paCtrlInfo);

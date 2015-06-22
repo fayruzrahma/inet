@@ -159,11 +159,15 @@ packet IPv6Redirect extends IPv6NDMessage
 
 packet IPv6PrefixSolicitation extends IPv6NDMessage
 {
-    IPv6Address prefix;
-    int prefixLength;
+    bool isRequesting;
 }
 
-packet IPv6PrefixAck extends IPv6RouterAdvertisement
+packet IPv6PrefixAdvertisement extends IPv6RouterAdvertisement
 {
-    bool isAcked;
+}
+
+packet IPv6PrefixAck extends IPv6NDMessage
+{
+    IPv6Address prefix;
+    int prefixLength;
 }

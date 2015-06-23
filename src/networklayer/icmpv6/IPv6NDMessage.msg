@@ -86,7 +86,6 @@ packet IPv6RouterSolicitation extends IPv6NDMessage
 {
     //Possible Options
     MACAddress sourceLinkLayerAddress;
-    bool isRouter;
 }
 
 //

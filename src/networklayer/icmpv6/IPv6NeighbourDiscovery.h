@@ -301,7 +301,7 @@ class INET_API IPv6NeighbourDiscovery : public cSimpleModule, public ILifecycle
 
         /************Router Advertisment Stuff*********************************/
         virtual IPv6RouterAdvertisement *createAndSendRAPacket(const IPv6Address& destAddr,
-            InterfaceEntry *ie, bool isSenderARouter);
+            InterfaceEntry *ie);
         virtual void processRAPacket(IPv6RouterAdvertisement *ra, IPv6ControlInfo *raCtrlInfo);
         virtual void processRAPacketPart2(IPv6RouterAdvertisement *ra, IPv6ControlInfo *raCtrlInfo);
         virtual void processRAForRouterUpdates(IPv6RouterAdvertisement *ra,

@@ -126,3 +126,19 @@ IPv6Address PrefixTable::getHoARootMR(const IPv6Address& prefix) const
 
     return HoARootMR; //unspec
 }
+
+bool PrefixTable::isInPrefixTable2(const IPv6Address& prefix) const
+{
+    bool isInPrefixTable;
+    PrefixTable6::const_iterator pos;
+    for (pos = prefixTable.begin(); pos!=prefixTable.end(); pos++)
+    {
+        if (prefix == pos->second.mobileNetworkPrefix)
+        {
+            isInPrefixTable = true;
+            return isInPrefixTable;
+        }
+    }
+
+    return false;
+}

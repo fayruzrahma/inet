@@ -82,6 +82,11 @@ public:
      * Returns the root-MR of a prefix
      */
     IPv6Address getHoARootMR(const IPv6Address& prefix) const;
+
+    /*
+     * Check whether there is an entry in the PT for the given prefix
+     */
+    bool isInPrefixTable2(const IPv6Address& prefix) const;
 };
 
 /**

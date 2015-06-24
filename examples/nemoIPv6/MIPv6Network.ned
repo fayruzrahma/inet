@@ -20,8 +20,9 @@
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //
 
-package inet.examples.nemoIPv6;
+package nemo;
 
+import inet.nodes.xmipv6.MobileRouter6;
 import inet.world.radio.ChannelControl;
 import inet.nodes.xmipv6.WirelessHost6;
 import inet.nodes.xmipv6.HomeAgent6;
@@ -32,14 +33,6 @@ import inet.nodes.ipv6.StandardHost6;
 import inet.networklayer.autorouting.ipv6.FlatNetworkConfigurator6;
 import inet.linklayer.ethernet.EtherHub;
 
-import inet.examples.nemoIPv6.simpleNEMO_end;
-
-channel fiberline extends ned.DatarateChannel
-{
-    parameters:
-        delay = 1us;
-        datarate = 512Mbps;
-}
 
 channel ethernetline extends ned.DatarateChannel
 {
@@ -48,7 +41,7 @@ channel ethernetline extends ned.DatarateChannel
         datarate = 100Mbps;
 }
 
-network mIPv6NetworkExample
+network mIPv6Network
 {
     parameters:
         @display("bgb=799,698");
@@ -74,10 +67,6 @@ network mIPv6NetworkExample
             parameters:
                 @display("p=406,355");
         }
-        NEMO: simpleNEMO_end {
-            parameters:
-                @display("p=202,108");
-        }
         CN: CorrespondentNode6;
         AP_Home: AccessPoint {
             parameters:
@@ -92,15 +81,16 @@ network mIPv6NetworkExample
                 @display("p=406,412;i=device/hub_s");
         }
 
+        MR: MobileRouter6 {
+            @display("p=353,125");
+            numRadios = 1;
+        }
+        LFN: StandardHost6 {
+            @display("p=353,59");
+        }
     connections allowunconnected:
 
-                         //Home_Agent.ethOut++ --> ethernetline --> R_1.ethIn++;
-                         //Home_Agent.ethIn++ <-- ethernetline <-- R_1.ethOut++;
-
         R_1.ethg++ <--> ethernetline <--> R_2.ethg++;
-
-                                                       //R_2.ethOut++ --> ethernetline --> R_3.ethIn++;
-                                                       //R_2.ethIn++ <-- ethernetline <-- R_3.ethOut++;
 
         Home_Agent.ethg$o++ --> ethernetline --> R_2.ethg$i++;
         Home_Agent.ethg$i++ <-- ethernetline <-- R_2.ethg$o++;
@@ -112,19 +102,10 @@ network mIPv6NetworkExample
 
         hub.ethg++ <--> ethernetline <--> R_2.ethg++;
 
-                                                    //R_1.ethOut++ --> ethernetline --> CN.ethIn++;
-                                                    //R_1.ethIn++ <-- ethernetline <-- CN.ethOut++;
-
         AP_Home.ethg$o++ --> ethernetline --> Home_Agent.ethg$i++;
         AP_Home.ethg$i++ <-- ethernetline <-- Home_Agent.ethg$o++;
 
         AP_1.ethg++ <--> ethernetline <--> R_1.ethg++;
-
-                                                        //AP_2.ethOut++ --> ethernetline --> R_2.ethIn++;
-                                                        //AP_2.ethIn++ <-- ethernetline <-- R_2.ethOut++;
-
-                                                        //AP_3.ethOut++ --> ethernetline --> R_3.ethIn++;
-                                                        //AP_3.ethIn++ <-- ethernetline <-- R_3.ethOut++;
-
+        MR.ethg++ <--> ethernetline <--> LFN.ethg++;
 }
 
